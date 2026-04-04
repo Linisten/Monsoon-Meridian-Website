@@ -268,32 +268,32 @@ const Sales = () => {
     setShowReceipt(true);
   };
 
-  // ── Barcode Scanner (Manual Input, Global Physical Scanner, & Camera) ───
+  const processBarcode = (code) => {
+    if (!code) return;
+    const item = items.find(it => it.code.toLowerCase() === code.toLowerCase());
+    if (item) {
+      addToCart(item);
+      setBarcodeInput('');
+      return true;
+    } else {
+      alert('Product Not Found: ' + code);
+      setBarcodeInput('');
+      return false;
+    }
+  };
+
   const handleBarcodeScan = (e) => {
     if (e.key === 'Enter') {
-      const code = barcodeInput.trim();
-      if (!code) return;
-      const item = items.find(it => it.code.toLowerCase() === code.toLowerCase());
-      if (item) {
-        addToCart(item);
-        setBarcodeInput('');
-      } else {
-        alert('Item not found: ' + code);
-      }
+      processBarcode(barcodeInput.trim());
     }
   };
 
   const onCamScan = (scanResult) => {
     if (scanResult && scanResult.length > 0) {
       const code = scanResult[0].rawValue;
-      const item = items.find(it => it.code.toLowerCase() === code.toLowerCase());
-      if (item) {
-        addToCart(item);
+      if (processBarcode(code)) {
         setShowCamScanner(false);
         setCamError('');
-      } else {
-        setCamError('Invalid Product');
-        setTimeout(() => setCamError(''), 2500);
       }
     }
   };
@@ -307,9 +307,7 @@ const Sales = () => {
 
       if (e.key === 'Enter') {
         if (buffer) {
-          const item = items.find(it => it.code.toLowerCase() === buffer.toLowerCase());
-          if (item) addToCart(item);
-          else alert('Item not found: ' + buffer);
+          processBarcode(buffer);
           buffer = '';
         }
       } else if (e.key.length === 1) { // normal character
@@ -690,7 +688,7 @@ const Sales = () => {
               <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Camera size={20} /> Camera Scanner
               </h2>
-              <button onClick={() => setShowCamScanner(false)} style={{ color: 'var(--c-text-secondary)', background: 'none', border: 'none', cursor: 'pointer' }}><X size={24} /></button>
+              <button onClick={() => { setShowCamScanner(false); setCamError(''); }} style={{ color: 'var(--c-text-secondary)', background: 'none', border: 'none', cursor: 'pointer' }}><X size={24} /></button>
             </div>
             
             <div style={{ borderRadius: 12, overflow: 'hidden', background: '#000', aspectRatio: '1/1', width: '100%', position: 'relative' }}>
@@ -698,16 +696,27 @@ const Sales = () => {
                 onScan={onCamScan}
                 onError={(err) => {
                   console.error('Scanner err:', err);
-                  if (err?.name === 'NotAllowedError') {
-                    alert('Camera access denied. Please allow camera permissions in your browser.');
-                    setShowCamScanner(false);
-                  } else if (err?.name === 'NotFoundError') {
-                    alert('No camera found on this device.');
-                    setShowCamScanner(false);
-                  }
+                  let msg = 'Could not start camera. ';
+                  if (err?.name === 'NotAllowedError') msg += 'Please allow camera permissions in your browser settings.';
+                  else if (err?.name === 'NotFoundError') msg += 'No camera found on this device.';
+                  else if (err?.name === 'NotReadableError') msg += 'Camera is already in use by another application.';
+                  else msg += err?.message || 'Unknown camera error.';
+                  setCamError(msg);
                 }}
+                constraints={{ 
+                  facingMode: 'environment',
+                  aspectRatio: { ideal: 1 } 
+                }}
+                scanDelay={300}
                 formats={['qr_code', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf']}
                 styles={{ container: { width: '100%', height: '100%' } }}
+                components={{
+                  audio: false,
+                  torch: true,
+                  count: false,
+                  onOff: true,
+                  finder: true,
+                }}
               />
               {camError && (
                 <div style={{ position: 'absolute', bottom: '1rem', left: '1rem', right: '1rem', background: 'var(--c-danger)', color: 'white', fontWeight: 700, padding: '0.75rem', borderRadius: 8, textAlign: 'center', boxShadow: '0 4px 12px rgba(0,0,0,0.2)', zIndex: 10 }}>

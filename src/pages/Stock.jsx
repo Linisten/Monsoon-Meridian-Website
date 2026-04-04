@@ -29,20 +29,20 @@ const Stock = () => {
   const [searchType, setSearchType] = useState('ItemDescription');
   const [verificationDate, setVerificationDate] = useState(new Date().toISOString().split('T')[0]);
 
-  // ── Global Barcode Listener (Physical Scanner) ──
   useEffect(() => {
     let buffer = '';
     let timeout;
     const handleGlobalScan = (e) => {
-      // Ignore if user is actively typing in another text input/textarea/select
-      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+      // Ignore if user is specifically in a search or large textarea
+      // But allow if we're basically anywhere else to catch scanner input
+      if (e.target.tagName === 'TEXTAREA') return;
 
       if (e.key === 'Enter') {
-        if (buffer) {
+        if (buffer && buffer.length > 2) { // Barcodes are usually > 2 chars
           fillBarcode(buffer);
           buffer = '';
         }
-      } else if (e.key.length === 1) { // normal character
+      } else if (e.key.length === 1) { 
         buffer += e.key;
         clearTimeout(timeout);
         // Scanners type fast; clear buffer if inactive for 100ms
@@ -55,21 +55,30 @@ const Stock = () => {
       window.removeEventListener('keydown', handleGlobalScan);
       clearTimeout(timeout);
     };
-  }, [items]);
+  }, [items, activeTab, activeItem]); // Re-bind when state changes to ensure fillBarcode has right context
 
   const fillBarcode = (code) => {
-    // If we are in master mode, assigning to active item or finding it
-    const existing = items.find(it => it.code?.toLowerCase() === code.toLowerCase());
-    if (existing) {
-      setActiveItem(existing);
-      setActiveTab('master');
-      showStatus('Loaded existing item from barcode.');
+    if (!code) return;
+
+    if (activeTab === 'master') {
+      // In Item Master, simply update the field for the current item
+      if (activeItem) {
+        setActiveItem(prev => ({ ...prev, code: code }));
+        showStatus('Barcode updated in field.');
+      } else {
+        handleCreateNew();
+        setActiveItem(prev => ({ ...prev, code: code }));
+        showStatus('New item started with scanned barcode.');
+      }
     } else {
-      // If none exists, help them create it
-      setActiveTab('master');
-      handleCreateNew();
-      setActiveItem(prev => ({...prev, code: code}));
-      showStatus('New barcode scanned. Please enter item details.', 'success');
+      // In Stock Verification, find the item to load it
+      const existing = items.find(it => it.code?.toLowerCase() === code.toLowerCase());
+      if (existing) {
+        setActiveItem(existing);
+        showStatus('Item found: ' + existing.name);
+      } else {
+        showStatus('Item with barcode ' + code + ' not found in master.', 'error');
+      }
     }
   };
 
@@ -559,7 +568,7 @@ const Stock = () => {
               <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Camera size={20} /> Camera Scanner
               </h2>
-              <button onClick={() => setShowCamScanner(false)} style={{ color: 'var(--c-text-secondary)', background: 'none', border: 'none', cursor: 'pointer' }}><X size={24} /></button>
+              <button onClick={() => { setShowCamScanner(false); setCamError(''); }} style={{ color: 'var(--c-text-secondary)', background: 'none', border: 'none', cursor: 'pointer' }}><X size={24} /></button>
             </div>
             
             <div style={{ borderRadius: 12, overflow: 'hidden', background: '#000', aspectRatio: '1/1', width: '100%', position: 'relative' }}>
@@ -567,16 +576,22 @@ const Stock = () => {
                 onScan={onCamScan}
                 onError={(err) => {
                   console.error('Scanner err:', err);
-                  if (err?.name === 'NotAllowedError') {
-                    alert('Camera access denied. Please allow camera permissions in your browser.');
-                    setShowCamScanner(false);
-                  } else if (err?.name === 'NotFoundError') {
-                    alert('No camera found on this device.');
-                    setShowCamScanner(false);
-                  }
+                  let msg = 'Could not start camera. ';
+                  if (err?.name === 'NotAllowedError') msg += 'Please allow camera permissions.';
+                  else if (err?.name === 'NotFoundError') msg += 'No camera found.';
+                  else msg += err?.message || 'Error.';
+                  setCamError(msg);
                 }}
+                constraints={{ facingMode: 'environment' }}
+                scanDelay={300}
                 formats={['qr_code', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf']}
                 styles={{ container: { width: '100%', height: '100%' } }}
+                components={{
+                  audio: false,
+                  torch: true,
+                  onOff: true,
+                  finder: true,
+                }}
               />
               {camError && (
                 <div style={{ position: 'absolute', bottom: '1rem', left: '1rem', right: '1rem', background: 'var(--c-danger)', color: 'white', fontWeight: 700, padding: '0.75rem', borderRadius: 8, textAlign: 'center', boxShadow: '0 4px 12px rgba(0,0,0,0.2)', zIndex: 10 }}>
