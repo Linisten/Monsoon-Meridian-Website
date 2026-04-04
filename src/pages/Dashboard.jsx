@@ -9,7 +9,6 @@ import {
 } from 'lucide-react';
 import { supabase } from '../config/supabaseClient';
 
-const CURRENT_APP_VERSION = '1.0.0';
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -19,7 +18,6 @@ const Dashboard = () => {
     grossProfit: 0,
     stockValue: 0
   });
-  const [updateInfo, setUpdateInfo] = useState(null);
   const [loading, setStatusLoading] = useState(true);
 
   useEffect(() => {
@@ -60,11 +58,6 @@ const Dashboard = () => {
       stockValue
     });
 
-    // 4. Check for Updates
-    const { data: settings } = await supabase.from('settings').select('app_version, update_message').limit(1).single();
-    if (settings && settings.app_version !== CURRENT_APP_VERSION) {
-      setUpdateInfo(settings);
-    }
 
     setStatusLoading(false);
   };
@@ -130,46 +123,6 @@ const Dashboard = () => {
   return (
     <div style={{ paddingBottom: '2rem', paddingTop: '1.5rem' }}>
       
-      {/* Update Notification Banner */}
-      {updateInfo && (
-        <div style={{ 
-          marginBottom: '2rem', 
-          background: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)', 
-          borderRadius: '16px', 
-          padding: '1.25rem 2rem', 
-          color: 'white',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          boxShadow: '0 20px 25px -5px rgba(59, 130, 246, 0.25)',
-          animation: 'pulse 2s infinite ease-in-out'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
-            <div style={{ background: 'rgba(255,255,255,0.2)', padding: '0.75rem', borderRadius: '12px' }}>
-              <ArrowUpCircle size={28} />
-            </div>
-            <div>
-              <div style={{ fontSize: '1.1rem', fontWeight: 800 }}>New Update Available (v{updateInfo.app_version})</div>
-              <div style={{ fontSize: '0.9rem', opacity: 0.9 }}>{updateInfo.update_message || 'New features and improvements are ready for use.'}</div>
-            </div>
-          </div>
-          <button 
-            onClick={() => window.location.reload()} 
-            style={{ 
-              background: 'white', 
-              color: '#1d4ed8', 
-              border: 'none', 
-              padding: '0.75rem 1.5rem', 
-              borderRadius: '10px', 
-              fontWeight: 800, 
-              cursor: 'pointer',
-              fontSize: '0.9rem'
-            }}
-          >
-            Refresh Interface
-          </button>
-        </div>
-      )}
 
       {/* Stats Row */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>

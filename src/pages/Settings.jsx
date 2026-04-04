@@ -29,9 +29,6 @@ const Settings = () => {
     email: 'info@monsoonmeridian.com',
     gst_no: '32AABCU9603R1ZX',
     upi_id: '9846137892@rapl',
-    razorpay_key: '',
-    app_version: '1.0.0',
-    update_message: '',
   });
   const [settingsId, setSettingsId] = useState(null);
   const [saved, setSaved] = useState(false);
@@ -52,9 +49,6 @@ const Settings = () => {
         email: data.email || '',
         gst_no: data.gst_no || '',
         upi_id: data.upi_id || '',
-        razorpay_key: data.razorpay_key || '',
-        app_version: data.app_version || '1.0.0',
-        update_message: data.update_message || '',
       });
       setSettingsId(data.id);
     }
@@ -127,23 +121,6 @@ const Settings = () => {
         </div>
       </div>
 
-      {/* System & Updates */}
-      <div className="card" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-        <h2 style={{ fontSize: '1.3rem', fontWeight: 800, margin: 0, borderBottom: '2px solid var(--c-border)', paddingBottom: '0.75rem' }}>
-          System & Developer Settings
-        </h2>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
-          <Field label="Razorpay API Key" icon={Receipt} value={form.razorpay_key} onChange={v => handleChange('razorpay_key', v)} />
-          <Field label="Current App Version" icon={Smartphone} value={form.app_version} onChange={v => handleChange('app_version', v)} />
-        </div>
-        <Field label="Update Notification Message" icon={Mail} value={form.update_message} onChange={v => handleChange('update_message', v)} />
-        <div style={{ padding: '1rem', background: '#fef2f2', borderRadius: 8, border: '1px solid #fecaca', display: 'flex', gap: '0.75rem' }}>
-          <CheckCircle size={18} color="#dc2626" style={{ marginTop: 2 }} />
-          <p style={{ margin: 0, color: '#991b1b', fontSize: '0.9rem' }}>
-            <b>Developer Note:</b> Changing the App Version will trigger an "Update Available" notification for all users currently using an older version of the software.
-          </p>
-        </div>
-      </div>
 
       {/* Receipt Preview */}
       <div className="card" style={{ padding: '2rem' }}>
