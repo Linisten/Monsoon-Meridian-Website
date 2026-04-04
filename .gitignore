@@ -32,4 +32,5 @@ dist-electron*.log
 
 
 .vercel
+.env
 .env*.local
