@@ -30,3 +30,6 @@ dist-electron/
 dist-electron*.log
 *.rar
 
+
+.vercel
+.env*.local
