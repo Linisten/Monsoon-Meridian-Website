@@ -251,15 +251,15 @@ const Sales = () => {
       return;
     }
 
-    // --- DECREMENT INVENTORY ---
-    const stockUpdates = cart.map(async (item) => {
-      const { data: current } = await supabase.from('items').select('stock_quantity').eq('id', item.id).single();
-      if (!current) return;
-      const newQty = (current.stock_quantity || 0) - item.qty;
-      return supabase.from('items').update({ stock_quantity: newQty }).eq('id', item.id);
-    });
+    // --- DECREMENT INVENTORY (ATOMIC) ---
+    const stockUpdates = cart.map(item => 
+      supabase.rpc('handle_stock_update', { 
+        item_id: item.id, 
+        quantity_change: -item.qty 
+      })
+    );
     await Promise.all(stockUpdates);
-    // ---------------------------
+    // ------------------------------------
 
     setPaymentOverlay('success');
     await new Promise(r => setTimeout(r, 800));

@@ -114,13 +114,13 @@ const Purchase = () => {
     });
     if (purchaseError) return alert('Error saving purchase: ' + purchaseError.message);
 
-    // Step 5: Auto-update stock_quantity for each purchased item
-    const stockUpdates = billItems.map(async (item) => {
-      const { data: current } = await supabase.from('items').select('stock_quantity').eq('id', item.id).single();
-      if (!current) return;
-      const newQty = (current.stock_quantity || 0) + item.qty;
-      return supabase.from('items').update({ stock_quantity: newQty }).eq('id', item.id);
-    });
+    // Step 5: Auto-update stock_quantity (ATOMIC)
+    const stockUpdates = billItems.map(item => 
+      supabase.rpc('handle_stock_update', { 
+        item_id: item.id, 
+        quantity_change: item.qty 
+      })
+    );
     await Promise.all(stockUpdates);
 
     alert(`Purchase saved! Stock updated for ${billItems.length} item(s).`);

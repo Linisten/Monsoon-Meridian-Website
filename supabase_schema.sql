@@ -1,12 +1,4 @@
--- ============================================================
--- MONSOON MERIDIAN — Complete Unified Supabase Schema + Seed Data
--- Run this entire file in Supabase SQL Editor
--- (Go to: supabase.com → your project → SQL Editor → New Query)
--- ============================================================
 
--- ============================================================
--- CORE DATABASES
--- ============================================================
 
 -- 1. ITEMS TABLE
 create table if not exists public.items (
@@ -182,6 +174,23 @@ alter table public.company   disable row level security;
 alter table public.shop      disable row level security;
 alter table public.users     disable row level security;
 alter table public.date      disable row level security;
+
+-- ============================================================
+-- STORED PROCEDURES (RPCs)
+-- ============================================================
+
+-- Function to handle atomic stock updates (increments/decrements)
+create or replace function public.handle_stock_update(item_id uuid, quantity_change numeric)
+returns void
+language plpgsql
+security definer
+as $$
+begin
+  update public.items
+  set stock_quantity = items.stock_quantity + quantity_change
+  where id = item_id;
+end;
+$$;
 
 -- ============================================================
 -- SEED DATA
