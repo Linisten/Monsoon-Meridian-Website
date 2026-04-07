@@ -77,7 +77,7 @@ a:hover { color: #1d4ed8; text-decoration: underline; }
 ::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: var(--radius-xl); border: 3px solid var(--c-bg); }
 ::-webkit-scrollbar-thumb:hover { background: #64748b; }
 
-#root { display: flex; min-height: 100vh; width: 100%; }
+#root { display: flex; min-height: 100vh; width: 100%; overflow: hidden; }
 
 /* Buttons - Massive and chunky */
 button { font-family: inherit; cursor: pointer; border: none; background: none; transition: var(--transition); outline: none; }
@@ -85,7 +85,7 @@ button { font-family: inherit; cursor: pointer; border: none; background: none; 
 .btn-primary {
   background-color: var(--c-wave);
   color: white;
-  padding: 1rem 2rem; /* Huge padding */
+  padding: 1rem 2rem;
   border-radius: var(--radius-md);
   font-weight: 700;
   font-size: 1.1rem;
@@ -160,7 +160,25 @@ select option { background-color: var(--c-bg-card); color: var(--c-text-primary)
   100% { transform: rotate(360deg); }
 }
 
+/* Responsive Utilities */
+.mobile-only { display: none; }
+.desktop-only { display: block; }
+
+@media (max-width: 1024px) {
+  .desktop-only { display: none !important; }
+  .mobile-only { display: block !important; }
+}
+
+@media (max-width: 768px) {
+  main { padding: 1rem !important; }
+  .card { padding: 1.25rem !important; }
+}
+
+/* Print Overrides */
 @media print {
+  @page {
+    margin: 0;
+  }
   body * {
     visibility: hidden;
   }
@@ -173,8 +191,9 @@ select option { background-color: var(--c-bg-card); color: var(--c-text-primary)
     top: 0;
     width: 80mm; /* Standard POS Printer width */
     margin: 0;
-    padding: 0;
+    padding: 5px !important;
     box-shadow: none;
     border: none;
+    color: #000 !important;
   }
 }

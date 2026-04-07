@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Bell, Search, X, AlertTriangle, Package, ExternalLink, Minus, Square } from 'lucide-react';
+import { Bell, Search, X, AlertTriangle, Package, ExternalLink, Menu } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../../config/supabaseClient';
 
-const Header = () => {
+const Header = ({ onMenuClick }) => {
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -147,15 +147,33 @@ const Header = () => {
       borderBottom: '1px solid var(--c-border)',
       display: 'flex',
       alignItems: 'center',
-      padding: '0 2rem',
+      padding: '0 1rem 0 2rem',
       position: 'sticky',
       top: 0,
       zIndex: 40,
       gap: '1rem',
-      WebkitAppRegion: 'drag', // Enable window dragging
     }}>
+      {/* Mobile Hamburger */}
+      <button 
+        onClick={onMenuClick}
+        className="mobile-only"
+        style={{
+          padding: '8px',
+          marginLeft: '-1rem',
+          color: 'var(--c-text-primary)',
+          cursor: 'pointer',
+          background: 'none',
+          border: 'none',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Menu size={24} />
+      </button>
+
       {/* Page title */}
-      <h1 style={{ fontSize: '1.15rem', margin: 0, fontWeight: 600, color: 'var(--c-text-primary)', flexShrink: 0, whiteSpace: 'nowrap', WebkitAppRegion: 'no-drag' }}>
+      <h1 style={{ fontSize: '1.15rem', margin: 0, fontWeight: 600, color: 'var(--c-text-primary)', flexShrink: 0, whiteSpace: 'nowrap' }}>
         {getPageTitle()}
       </h1>
 
@@ -163,7 +181,7 @@ const Header = () => {
       <div style={{ flex: 1 }} />
 
       {/* ── Search ── */}
-      <div ref={searchRef} style={{ position: 'relative', WebkitAppRegion: 'no-drag' }}>
+      <div ref={searchRef} style={{ position: 'relative' }}>
         <div style={{ position: 'relative' }}>
           <Search size={16} style={{
             position: 'absolute', left: '10px', top: '50%',
@@ -282,7 +300,7 @@ const Header = () => {
       </div>
 
       {/* ── Notification Bell ── */}
-      <div ref={notifRef} style={{ position: 'relative', WebkitAppRegion: 'no-drag' }}>
+      <div ref={notifRef} style={{ position: 'relative' }}>
         <button
           id="notif-bell-btn"
           onClick={toggleNotif}

@@ -1,3 +1,4 @@
+import React, { useState, useEffect } from 'react';
 import { Save, Building, Phone, Mail, MapPin, Receipt, Smartphone, CheckCircle, Printer, RefreshCw, AlertCircle } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { supabase } from '../config/supabaseClient';
@@ -92,10 +93,25 @@ const Settings = () => {
   if (loading) return <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--c-text-secondary)', fontSize: '1.2rem' }}>Loading settings...</div>;
 
   return (
-    <div style={{ maxWidth: 860, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+    <div className="settings-container" style={{ maxWidth: 860, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+      <style>{`
+        @media (max-width: 768px) {
+          .settings-header {
+            flex-direction: column !important;
+            align-items: flex-start !important;
+            gap: 1.5rem !important;
+          }
+          .settings-header button {
+            width: 100% !important;
+          }
+          .settings-grid {
+            grid-template-columns: 1fr !important;
+          }
+        }
+      `}</style>
 
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div className="settings-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <h1 style={{ fontSize: '2rem', fontWeight: 900, margin: 0 }}>Shop Settings</h1>
           <p style={{ color: 'var(--c-text-secondary)', margin: '4px 0 0 0' }}>This information appears on your receipts and reports.</p>
@@ -111,12 +127,12 @@ const Settings = () => {
         <h2 style={{ fontSize: '1.3rem', fontWeight: 800, margin: 0, borderBottom: '2px solid var(--c-border)', paddingBottom: '0.75rem' }}>
           Business Information
         </h2>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+        <div className="settings-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
           <Field label="Company Name" icon={Building} value={form.company_name} onChange={v => handleChange('company_name', v)} />
           <Field label="Shop / Brand Name" icon={Building} value={form.shop_name} onChange={v => handleChange('shop_name', v)} />
         </div>
         <Field label="Address" icon={MapPin} value={form.address} onChange={v => handleChange('address', v)} />
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+        <div className="settings-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
           <Field label="Phone Number" icon={Phone} value={form.phone} onChange={v => handleChange('phone', v)} />
           <Field label="Email Address" icon={Mail} value={form.email} onChange={v => handleChange('email', v)} type="email" />
         </div>
@@ -127,7 +143,7 @@ const Settings = () => {
         <h2 style={{ fontSize: '1.3rem', fontWeight: 800, margin: 0, borderBottom: '2px solid var(--c-border)', paddingBottom: '0.75rem' }}>
           Tax & Payment Details
         </h2>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+        <div className="settings-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
           <Field label="GST Registration Number" icon={Receipt} value={form.gst_no} onChange={v => handleChange('gst_no', v)} />
           <Field label="UPI Payment ID" icon={Smartphone} value={form.upi_id} onChange={v => handleChange('upi_id', v)} />
         </div>
@@ -173,7 +189,7 @@ const Settings = () => {
                     const testCmds = qzHelper.constructor.Commands.INIT + 
                                      qzHelper.constructor.Commands.ALIGN_CENTER + 
                                      '\x1B\x21\x30' + 'TEST PRINT\x0A' + 
-                                     '\x1B\x21\x00' + 'Connection successful!\x0A\x0A\x0A' + 
+                                     '\x1B\x21\x00' + 'Connection successful!\x0A' + 
                                      qzHelper.constructor.Commands.CUT;
                     await qzHelper.print(form.thermal_printer_name, testCmds);
                   } catch (e) { alert('Print failed: ' + e.message); }
@@ -196,90 +212,77 @@ const Settings = () => {
       {/* Receipt Preview */}
       <div className="card" style={{ padding: '2rem' }}>
         <h2 style={{ fontSize: '1.3rem', fontWeight: 800, margin: '0 0 1.5rem 0' }}>Receipt Preview</h2>
-        <div style={{ background: '#f8fafc', border: '1px dashed var(--c-border)', borderRadius: 8, padding: '2rem', fontFamily: 'monospace', fontSize: '0.85rem', maxWidth: 340, color: '#0f172a' }}>
+        <div style={{ background: 'white', border: '3px solid #000', borderRadius: 8, padding: '2rem', fontFamily: 'monospace', fontSize: '1.1rem', maxWidth: 380, color: '#000', fontWeight: 600 }}>
 
           {/* Header */}
-          <div style={{ textAlign: 'center', borderBottom: '1px dashed #94a3b8', paddingBottom: '0.75rem', marginBottom: '0.75rem' }}>
-            <div style={{ fontWeight: 900, fontSize: '1.2rem' }}>{form.company_name}</div>
-            <div>{form.address}</div>
-            <div>Tel: {form.phone}</div>
-            <div style={{ fontWeight: 700 }}>GSTIN: {form.gst_no}</div>
+          <div style={{ textAlign: 'center', borderBottom: '2.5px dashed #000', paddingBottom: '1rem', marginBottom: '1rem' }}>
+            <div style={{ fontWeight: 900, fontSize: '1.6rem', color: '#000', letterSpacing: '0.02em' }}>{form.company_name}</div>
+            {form.address && <div style={{ fontSize: '14px', fontWeight: 700, margin: '4px 0' }}>{form.address}</div>}
+            <div style={{ fontSize: '14px', fontWeight: 700 }}>
+              {form.phone && `Tel: ${form.phone}`}
+              {form.phone && form.gst_no && ' | '}
+              {form.gst_no && `GSTIN: ${form.gst_no}`}
+            </div>
           </div>
 
           {/* Meta */}
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Date:</span><span>{new Date().toLocaleDateString()}</span></div>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Invoice:</span><span>INV-12345</span></div>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Customer:</span><span>Walk-in</span></div>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Payment:</span><span>CASH</span></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px', marginBottom: '4px' }}><span>Date:</span><span style={{fontWeight: 900}}>{new Date().toLocaleDateString()}</span></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px', marginBottom: '4px' }}><span>Invoice:</span><span style={{fontWeight: 900}}>INV-12345</span></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px', marginBottom: '4px' }}><span>Customer:</span><span style={{fontWeight: 900}}>Walk-in</span></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px' }}><span>Payment:</span><span style={{fontWeight: 900}}>CASH</span></div>
 
           {/* Items sample */}
-          <div style={{ borderTop: '1px dashed #94a3b8', marginTop: '0.75rem', paddingTop: '0.5rem', display: 'grid', gridTemplateColumns: '1fr 40px 60px', fontWeight: 700, marginBottom: '0.25rem' }}>
+          <div style={{ borderTop: '2px dashed #000', marginTop: '1rem', paddingTop: '0.5rem', display: 'grid', gridTemplateColumns: '1fr 40px 60px', fontWeight: 800, marginBottom: '0.5rem' }}>
             <span>Item</span><span style={{ textAlign: 'center' }}>Qty</span><span style={{ textAlign: 'right' }}>Amt</span>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 40px 60px', marginBottom: '2px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 40px 60px', marginBottom: '4px', fontSize: '15px' }}>
             <span>Sample Item</span><span style={{ textAlign: 'center' }}>2</span><span style={{ textAlign: 'right' }}>200.00</span>
           </div>
 
           {/* Totals */}
-          <div style={{ borderTop: '1px dashed #94a3b8', marginTop: '0.75rem', paddingTop: '0.5rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Gross Total</span><span>₹200.00</span></div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 900, borderTop: '1px solid #94a3b8', marginTop: '4px', paddingTop: '4px' }}><span>NET TOTAL</span><span>₹200.00</span></div>
+          <div style={{ borderTop: '2.5px dashed #000', marginTop: '1rem', paddingTop: '0.75rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px' }}><span>Gross Total</span><span style={{fontWeight: 900}}>₹200.00</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 900, borderTop: '3px solid #000', marginTop: '8px', paddingTop: '8px', fontSize: '1.4rem' }}><span>NET TOTAL</span><span>₹200.00</span></div>
           </div>
 
           {/* Instagram QR */}
           <div style={{
             marginTop: '0.75rem',
             borderRadius: '10px',
-            overflow: 'hidden',
-            background: 'linear-gradient(135deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%)',
-            padding: '1px',
+            border: '1px solid #000',
+            padding: '0.75rem',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '0.4rem',
           }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2">
+                <rect x="2" y="2" width="20" height="20" rx="6" ry="6"/>
+                <circle cx="12" cy="12" r="4"/>
+                <circle cx="17.5" cy="6.5" r="1.2" fill="#000"/>
+              </svg>
+              <span style={{ fontSize: '9px', fontWeight: 700, color: '#000', letterSpacing: '0.02em' }}>Follow us on Instagram</span>
+            </div>
+            <QRCodeSVG
+              value={INSTAGRAM_URL}
+              size={110}
+              level="M"
+              includeMargin={false}
+              fgColor="#000000"
+            />
             <div style={{
-              background: 'white',
-              borderRadius: '9px',
-              padding: '0.75rem',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: '0.4rem',
+              fontSize: '11px',
+              fontWeight: 900,
+              letterSpacing: '0.08em',
+              color: '#000'
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                  <defs>
-                    <linearGradient id="ig-prev" x1="0" y1="24" x2="24" y2="0" gradientUnits="userSpaceOnUse">
-                      <stop offset="0%" stopColor="#f09433"/>
-                      <stop offset="50%" stopColor="#dc2743"/>
-                      <stop offset="100%" stopColor="#bc1888"/>
-                    </linearGradient>
-                  </defs>
-                  <rect x="2" y="2" width="20" height="20" rx="6" ry="6" stroke="url(#ig-prev)" strokeWidth="2" fill="none"/>
-                  <circle cx="12" cy="12" r="4" stroke="url(#ig-prev)" strokeWidth="2" fill="none"/>
-                  <circle cx="17.5" cy="6.5" r="1.2" fill="url(#ig-prev)"/>
-                </svg>
-                <span style={{ fontSize: '9px', fontWeight: 700, color: '#444', letterSpacing: '0.02em' }}>Follow us on Instagram</span>
-              </div>
-              <QRCodeSVG
-                value={INSTAGRAM_URL}
-                size={110}
-                level="M"
-                includeMargin={false}
-                fgColor="#000000"
-              />
-              <div style={{
-                fontSize: '11px',
-                fontWeight: 900,
-                letterSpacing: '0.08em',
-                background: 'linear-gradient(90deg, #f09433, #dc2743, #bc1888)',
-                WebkitBackgroundClip: 'text',
-                WebkitTextFillColor: 'transparent',
-              }}>
-                @{INSTAGRAM_HANDLE.toUpperCase()}
-              </div>
+              @{INSTAGRAM_HANDLE.toUpperCase()}
             </div>
           </div>
 
           {/* Thank you */}
-          <div style={{ borderTop: '1px dashed #94a3b8', marginTop: '0.75rem', paddingTop: '0.5rem', textAlign: 'center', fontWeight: 700, letterSpacing: '0.05em' }}>
+          <div style={{ borderTop: '2.5px dashed #000', marginTop: '1rem', paddingTop: '1rem', textAlign: 'center', fontWeight: 900, letterSpacing: '0.08em', color: '#000', fontSize: '16px' }}>
             *** THANK YOU — VISIT AGAIN ***
           </div>
 

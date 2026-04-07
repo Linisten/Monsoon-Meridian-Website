@@ -1,14 +1,28 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Header from './Header';
 
 const Layout = () => {
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
   return (
     <div style={{ display: 'flex', width: '100%', minHeight: '100vh', backgroundColor: 'var(--c-bg)' }}>
-      <Sidebar />
+      <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+      
+      {/* Overlay for mobile */}
+      {isSidebarOpen && (
+        <div 
+          onClick={() => setIsSidebarOpen(false)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9,
+          }}
+          className="mobile-only"
+        />
+      )}
+
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
-        <Header />
+        <Header onMenuClick={() => setIsSidebarOpen(true)} />
         <main style={{ flex: 1, overflowY: 'auto', padding: '2rem' }}>
           <Outlet />
         </main>

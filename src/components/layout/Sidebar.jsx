@@ -3,10 +3,15 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { LayoutDashboard, ShoppingCart, ShoppingBag, ClipboardList, TrendingUp, Settings, Users, FileText, LogOut, Megaphone, Barcode } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
-const Sidebar = () => {
+const Sidebar = ({ isOpen, onClose }) => {
   const location = useLocation();
   const { logout } = useAuth();
   const navigate = useNavigate();
+
+  // Handle click on mobile
+  const handleItemClick = () => {
+    if (window.innerWidth <= 1024) onClose();
+  };
 
   const handleLogout = async () => {
     await logout();
@@ -26,17 +31,42 @@ const Sidebar = () => {
     { path: '/settings', label: 'Settings', icon: <Settings size={20} /> },
   ];
 
+  const sidebarStyle = {
+    width: '260px',
+    height: '100%',
+    backgroundColor: 'var(--c-bg-card)',
+    borderRight: '1px solid var(--c-border)',
+    display: 'flex',
+    flexDirection: 'column',
+    boxShadow: 'var(--shadow-md)',
+    zIndex: 100,
+    transition: 'transform 0.3s ease',
+  };
+
+  // Mobile overrides using a clever trick: we check window width OR use CSS classes
+  // But for simple React, we can just use the prop and let CSS handle the 'display' if we want.
+  // Actually, let's use a class to hide/show on mobile.
+  
   return (
-    <aside style={{
-      width: '260px',
-      height: '100%',
-      backgroundColor: 'var(--c-bg-card)',
-      borderRight: '1px solid var(--c-border)',
-      display: 'flex',
-      flexDirection: 'column',
-      boxShadow: 'var(--shadow-md)',
-      zIndex: 10,
-    }}>
+    <aside 
+      style={sidebarStyle} 
+      className={`sidebar-container ${isOpen ? 'open' : ''}`}
+    >
+      <style>{`
+        @media (max-width: 1024px) {
+          .sidebar-container {
+            position: fixed !important;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            transform: translateX(-100%);
+          }
+          .sidebar-container.open {
+            transform: translateX(0);
+          }
+        }
+      `}</style>
+      
       {/* Brand Section with Logo */}
       <div style={{ padding: '2rem 1.5rem', display: 'flex', justifyContent: 'center' }}>
         <img 
@@ -46,13 +76,14 @@ const Sidebar = () => {
         />
       </div>
 
-      <nav style={{ flex: 1, padding: '0 0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+      <nav style={{ flex: 1, padding: '0 0.75rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
         {navItems.map((item) => {
           const isActive = location.pathname === item.path || (item.path !== '/' && location.pathname.startsWith(item.path));
           return (
             <NavLink
               key={item.path}
               to={item.path}
+              onClick={handleItemClick}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -65,7 +96,6 @@ const Sidebar = () => {
                 transition: 'var(--transition)',
                 textDecoration: 'none',
               }}
-              className={({ isActive: a }) => a ? '' : 'sidebar-link'}
             >
               {item.icon}
               {item.label}

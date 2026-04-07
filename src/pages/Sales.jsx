@@ -47,31 +47,34 @@ const ThermalReceipt = ({ tx, settings }) => {
   const roundOff      = netAmount - beforeRound; // stored netAmount is already rounded
 
   return (
-    <div id="thermal-receipt" style={{ backgroundColor: 'white', padding: '1.5rem', width: '360px', fontFamily: 'monospace', fontSize: '13px', color: '#000', lineHeight: 1.5 }}>
+    <div id="thermal-receipt" style={{ backgroundColor: 'white', padding: '1rem', width: '300px', fontFamily: 'monospace', fontSize: '14px', color: '#000', fontWeight: 600, lineHeight: 1.2 }}>
       {/* ── Header ── */}
-      <div style={{ textAlign: 'center', borderBottom: '2px dashed #000', paddingBottom: '1rem', marginBottom: '1rem' }}>
-        <h2 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 900 }}>{settings?.company_name || 'MONSOON MERIDIAN'}</h2>
-        <p style={{ margin: '4px 0' }}>{settings?.address || '123 Premium Arcade, Business Bay'}</p>
-        <p style={{ margin: '0' }}>Tel: {settings?.phone || '+91 9876543210'} | GSTIN: {settings?.gst_no || '32AABCU9603R1ZX'}</p>
+      <div style={{ textAlign: 'center', borderBottom: '2px dashed #000', paddingBottom: '0.75rem', marginBottom: '0.75rem' }}>
+        <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 900, color: '#000', letterSpacing: '0.02em' }}>{settings?.company_name || 'MONSOON MERIDIAN'}</h2>
+        {settings?.address && <p style={{ margin: '4px 0', fontSize: '13px', color: '#000', fontWeight: 700 }}>{settings.address}</p>}
+        <p style={{ margin: '0', fontSize: '12px', color: '#000', fontWeight: 700 }}>
+          {settings?.phone && <div>Tel: {settings.phone}</div>}
+          {settings?.gst_no && <div>GSTIN: {settings.gst_no}</div>}
+        </p>
       </div>
 
       {/* ── Meta ── */}
-      <div style={{ marginBottom: '1rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between' }}><b>Invoice:</b><span>{tx.id}</span></div>
-        <div style={{ display: 'flex', justifyContent: 'space-between' }}><b>Date:</b><span>{tx.date}</span></div>
-        <div style={{ display: 'flex', justifyContent: 'space-between' }}><b>Customer:</b><span>{tx.customer_name || 'Walk-in'}</span></div>
-        <div style={{ display: 'flex', justifyContent: 'space-between' }}><b>Payment:</b><span>{tx.payment_method}</span></div>
+      <div style={{ marginBottom: '0.75rem', color: '#000', fontSize: '13px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px', color: '#000' }}><b>Invoice:</b><span style={{fontWeight: 950}}>{tx.id?.substring(0, 8) || 'NA'}</span></div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px', color: '#000' }}><b>Date:</b><span style={{fontWeight: 950}}>{tx.date?.split(',')[0]}</span></div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px', color: '#000' }}><b>Customer:</b><span style={{fontWeight: 950}}>{tx.customer_name || 'Walk-in'}</span></div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', color: '#000' }}><b>Payment:</b><span style={{fontWeight: 950}}>{tx.payment_method}</span></div>
       </div>
 
       {/* ── Items ── */}
-      <div style={{ borderBottom: '1px dashed #000', paddingBottom: '4px', marginBottom: '4px', display: 'grid', gridTemplateColumns: '1fr 40px 70px', fontWeight: 700 }}>
+      <div style={{ borderBottom: '2px dashed #000', paddingBottom: '3px', marginBottom: '3px', display: 'grid', gridTemplateColumns: '1fr 35px 65px', fontWeight: 900, fontSize: '12px', color: '#000' }}>
         <span>Item</span><span style={{ textAlign: 'center' }}>Qty</span><span style={{ textAlign: 'right' }}>Amt</span>
       </div>
       {tx.items_json?.map((it, i) => {
         const rate = it.price || it.rate || 0;
         return (
-          <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 40px 70px', margin: '3px 0' }}>
-            <span>{it.name}</span>
+          <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 35px 65px', margin: '2px 0', fontSize: '12px', color: '#000', fontWeight: 800 }}>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.name}</span>
             <span style={{ textAlign: 'center' }}>{it.qty}</span>
             <span style={{ textAlign: 'right' }}>{(rate * it.qty).toFixed(2)}</span>
           </div>
@@ -79,86 +82,86 @@ const ThermalReceipt = ({ tx, settings }) => {
       })}
 
       {/* ── Totals ── */}
-      <div style={{ borderTop: '1px dashed #000', marginTop: '8px', paddingTop: '8px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Gross Total</span><span>₹{grossTotal.toFixed(2)}</span></div>
+      <div style={{ borderTop: '2.5px dashed #000', marginTop: '8px', paddingTop: '8px', color: '#000', fontSize: '13px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px', color: '#000' }}><span>Gross Total</span><span style={{fontWeight: 950}}>₹{grossTotal.toFixed(2)}</span></div>
         {discountAmt > 0 && (
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Discount</span><span>-₹{discountAmt.toFixed(2)}</span></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px', color: '#000' }}><span>Discount</span><span style={{fontWeight: 950}}>-₹{discountAmt.toFixed(2)}</span></div>
         )}
+        
         {taxPercent > 0 && (
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Tax ({taxPercent}%)</span><span>₹{taxAmt.toFixed(2)}</span></div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginBottom: '3px', color: '#000' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span>CGST ({(taxPercent/2).toFixed(1)}%)</span>
+              <span style={{fontWeight: 950}}>₹{(taxAmt/2).toFixed(2)}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span>SGST ({(taxPercent/2).toFixed(1)}%)</span>
+              <span style={{fontWeight: 950}}>₹{(taxAmt/2).toFixed(2)}</span>
+            </div>
+          </div>
         )}
+
+
         {Math.abs(roundOff) > 0.001 && (
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Round Off</span><span>{roundOff >= 0 ? '+' : ''}{roundOff.toFixed(2)}</span></div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#000', fontWeight: 700 }}><span>Round Off</span><span>{roundOff >= 0 ? '+' : ''}{roundOff.toFixed(2)}</span></div>
         )}
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 900, fontSize: '1.1rem', borderTop: '2px solid #000', marginTop: '6px', paddingTop: '6px' }}>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 950, fontSize: '1.4rem', borderTop: '2.5px solid #000', marginTop: '8px', paddingTop: '8px', color: '#000' }}>
           <span>NET TOTAL</span><span>₹{netAmount.toFixed(2)}</span>
         </div>
       </div>
+
 
       {/* ── Instagram QR ── */}
       <div style={{
         marginTop: '1rem',
         borderRadius: '12px',
-        overflow: 'hidden',
-        background: 'linear-gradient(135deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%)',
-        padding: '1px',
+        border: '2px solid #000',
+        padding: '1rem',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: '0.5rem',
       }}>
+        {/* Mini Instagram wordmark */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.5" xmlns="http://www.w3.org/2000/svg">
+            <rect x="2" y="2" width="20" height="20" rx="6" ry="6"/>
+            <circle cx="12" cy="12" r="4"/>
+            <circle cx="17.5" cy="6.5" r="1.2" fill="#000"/>
+          </svg>
+          <span style={{ fontSize: '12px', fontWeight: 900, color: '#000', fontFamily: 'monospace', letterSpacing: '0.02em' }}>Follow us on Instagram</span>
+        </div>
+
+        {/* QR Code */}
+        <QRCodeSVG
+          value={INSTAGRAM_URL}
+          size={140}
+          level="M"
+          includeMargin={false}
+          fgColor="#000000"
+        />
+
+        {/* Handle */}
         <div style={{
-          background: 'white',
-          borderRadius: '11px',
-          padding: '1rem',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          gap: '0.5rem',
+          fontSize: '14px',
+          fontWeight: 950,
+          letterSpacing: '0.08em',
+          color: '#000',
+          fontFamily: 'monospace',
+          borderTop: '1px solid #000',
+          paddingTop: '4px',
+          marginTop: '4px'
         }}>
-          {/* Mini Instagram wordmark */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <defs>
-                <linearGradient id="ig" x1="0" y1="24" x2="24" y2="0" gradientUnits="userSpaceOnUse">
-                  <stop offset="0%" stopColor="#f09433"/>
-                  <stop offset="25%" stopColor="#e6683c"/>
-                  <stop offset="50%" stopColor="#dc2743"/>
-                  <stop offset="75%" stopColor="#cc2366"/>
-                  <stop offset="100%" stopColor="#bc1888"/>
-                </linearGradient>
-              </defs>
-              <rect x="2" y="2" width="20" height="20" rx="6" ry="6" stroke="url(#ig)" strokeWidth="2" fill="none"/>
-              <circle cx="12" cy="12" r="4" stroke="url(#ig)" strokeWidth="2" fill="none"/>
-              <circle cx="17.5" cy="6.5" r="1.2" fill="url(#ig)"/>
-            </svg>
-            <span style={{ fontSize: '11px', fontWeight: 700, color: '#444', fontFamily: 'monospace', letterSpacing: '0.02em' }}>Follow us on Instagram</span>
-          </div>
-
-          {/* QR Code */}
-          <QRCodeSVG
-            value={INSTAGRAM_URL}
-            size={140}
-            level="M"
-            includeMargin={false}
-            fgColor="#000000"
-          />
-
-          {/* Handle */}
-          <div style={{
-            fontSize: '13px',
-            fontWeight: 900,
-            letterSpacing: '0.08em',
-            background: 'linear-gradient(90deg, #f09433, #dc2743, #bc1888)',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
-            fontFamily: 'monospace',
-          }}>
-            @{INSTAGRAM_HANDLE.toUpperCase()}
-          </div>
+          @{INSTAGRAM_HANDLE.toUpperCase()}
         </div>
       </div>
 
       {/* ── Thank You ── */}
-      <div style={{ textAlign: 'center', marginTop: '1rem', paddingTop: '0.75rem', borderTop: '1px dashed #000' }}>
-        <p style={{ margin: 0, fontWeight: 700, letterSpacing: '0.06em', fontSize: '13px' }}>*** THANK YOU — VISIT AGAIN ***</p>
+      <div style={{ textAlign: 'center', marginTop: '1rem', paddingTop: '1rem', borderTop: '2.5px dashed #000' }}>
+        <p style={{ margin: 0, fontWeight: 950, letterSpacing: '0.08em', fontSize: '16px', color: '#000' }}>*** THANK YOU — VISIT AGAIN ***</p>
       </div>
+
 
     </div>
   );
@@ -185,6 +188,8 @@ const Sales = () => {
   const [categories,       setCategories]       = useState(['ALL']);
 
   const [sysSettings,      setSysSettings]      = useState(null);
+  const [isProcessing,     setIsProcessing]     = useState(false);
+  const [isPrinting,       setIsPrinting]       = useState(false);
 
   useEffect(() => { fetchItems(); fetchSettings(); fetchCustomers(); fetchCategories(); }, []);
 
@@ -235,6 +240,9 @@ const Sales = () => {
 
   // ── Persist sale to Supabase ─────────────────────────────────────────────
   const persistSale = async (method, razorpayData = {}) => {
+    if (isProcessing) return;
+    setIsProcessing(true);
+
     const payload = {
       total_amount:    netAmount,
       tax_percent:     taxPercent,
@@ -249,6 +257,7 @@ const Sales = () => {
     if (error) {
       console.error('Supabase insert error:', error);
       setPaymentOverlay('error:' + (error.message || 'Unknown error'));
+      setIsProcessing(false);
       return;
     }
 
@@ -262,6 +271,7 @@ const Sales = () => {
     await Promise.all(stockUpdates);
     // ------------------------------------
 
+    setIsProcessing(false);
     setPaymentOverlay('success');
     await new Promise(r => setTimeout(r, 800));
     setPaymentOverlay(null);
@@ -352,12 +362,15 @@ const Sales = () => {
 
   // ── Thermal Direct Print ──────────────────────────────────────────────
   const handleDirectPrint = async () => {
-    if (!lastTransaction) return;
+    if (!lastTransaction || isPrinting) return;
+    setIsPrinting(true);
+
     const printer = sysSettings?.thermal_printer_name;
 
     if (!printer) {
       alert('No thermal printer selected! Please select one in Settings.');
       window.print(); // Fallback
+      setIsPrinting(false);
       return;
     }
 
@@ -368,19 +381,76 @@ const Sales = () => {
       console.error('Direct print failed:', err);
       alert('Direct print failed: ' + err.message + '\n\nFalling back to browser print.');
       window.print();
+    } finally {
+      setIsPrinting(false);
     }
   };
 
   // ── UI ───────────────────────────────────────────────────────────────────
   return (
-    <div style={{ height: 'calc(100vh - 120px)', display: 'flex', gap: '1.5rem', position: 'relative' }}>
+    <div className="sales-container" style={{ height: 'calc(100vh - 120px)', display: 'flex', gap: '1.5rem', position: 'relative' }}>
+      <style>{`
+        .payment-grid {
+          display: grid !important;
+          grid-template-columns: repeat(3, 1fr) !important;
+          gap: 0.5rem !important;
+        }
+        .payment-grid button {
+          padding: 0.75rem 0.25rem !important;
+          font-size: 0.9rem !important;
+          flex-shrink: 1 !important;
+          min-width: 0 !important;
+        }
+        @media (max-width: 1024px) {
+          .sales-container {
+            flex-direction: column !important;
+            height: auto !important;
+            overflow-y: auto !important;
+            padding-bottom: 5rem;
+          }
+          .cart-section {
+            flex: none !important;
+            width: 100% !important;
+            height: 600px !important;
+          }
+          .items-section {
+            flex: none !important;
+            width: 100% !important;
+          }
+          .cart-header {
+            flex-direction: column !important;
+            gap: 1rem !important;
+          }
+          .cart-table-header div:nth-child(2),
+          .cart-table-header div:nth-child(3),
+          .cart-table-row div:nth-child(2),
+          .cart-table-row div:nth-child(3) {
+            display: none !important;
+          }
+          .payment-grid {
+            grid-template-columns: 1fr 1fr !important;
+          }
+          .calculator-card {
+            flex-direction: column !important;
+            text-align: center !important;
+          }
+          .calculator-card div:last-child {
+            text-align: center !important;
+          }
+        }
+        @media (max-width: 600px) {
+          .payment-grid {
+            grid-template-columns: 1fr !important;
+          }
+        }
+      `}</style>
 
       {/* ─── LEFT: Cart ───────────────────────────────────────────────────── */}
-      <div style={{ flex: '1 1 65%', display: 'flex', flexDirection: 'column', gap: '1rem', minWidth: 0 }}>
+      <div className="cart-section" style={{ flex: '1 1 65%', display: 'flex', flexDirection: 'column', gap: '1rem', minWidth: 0 }}>
 
         {/* Header */}
-        <div className="card" style={{ padding: '1.25rem', display: 'flex', gap: '1.5rem' }}>
-          <div style={{ flex: 1 }}>
+        <div className="card cart-header" style={{ padding: '1.25rem', display: 'flex', gap: '1.5rem' }}>
+          <div style={{ flex: 1, minWidth: 150 }}>
             <label style={{ fontSize: '0.75rem', color: 'var(--c-text-secondary)', display: 'block', marginBottom: '0.25rem' }}>Customer Name / Phone</label>
             <SearchableSelect 
               options={['Walk-in Customer', ...customers.map(c => c.name)]}
@@ -416,7 +486,7 @@ const Sales = () => {
 
         {/* Cart table */}
         <div className="card" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', padding: 0 }}>
-          <div style={{ backgroundColor: '#f1f5f9', padding: '0.75rem 1rem', display: 'flex', fontWeight: 700, fontSize: '0.85rem', borderBottom: '1px solid var(--c-border)', alignItems: 'center' }}>
+          <div className="cart-table-header" style={{ backgroundColor: '#f1f5f9', padding: '0.75rem 1rem', display: 'flex', fontWeight: 700, fontSize: '0.85rem', borderBottom: '1px solid var(--c-border)', alignItems: 'center' }}>
             <div style={{ width: 36 }}>#</div>
             <div style={{ width: 44 }}>Pic</div>
             <div style={{ width: 76 }}>Code</div>
@@ -434,7 +504,7 @@ const Sales = () => {
             ) : cart.map((it, idx) => {
               const rate = it.price || it.rate || 0;
               return (
-                <div key={it.id} style={{ display: 'flex', alignItems: 'center', padding: '0.75rem 1rem', borderBottom: '1px solid var(--c-border)', fontSize: '0.95rem' }}>
+                <div key={it.id} className="cart-table-row" style={{ display: 'flex', alignItems: 'center', padding: '0.75rem 1rem', borderBottom: '1px solid var(--c-border)', fontSize: '0.95rem' }}>
                   <div style={{ width: 36, color: 'var(--c-text-secondary)' }}>{idx + 1}</div>
                   <div style={{ width: 44 }}>
                     {it.image_url ? <img src={it.image_url} alt="" style={{ width: 32, height: 32, borderRadius: 4, objectFit: 'cover' }} /> : <div style={{ width: 32, height: 32, borderRadius: 4, background: '#e2e8f0' }} />}
@@ -504,23 +574,23 @@ const Sales = () => {
       </div>
 
       {/* ─── RIGHT: Item Grid & Payments ──────────────────────────────────── */}
-      <div style={{ flex: '1 1 35%', display: 'flex', flexDirection: 'column', gap: '1rem', minWidth: 0 }}>
+      <div className="items-section" style={{ flex: '1 1 35%', display: 'flex', flexDirection: 'column', gap: '1rem', minWidth: 0 }}>
 
         {/* Actual Payment Buttons */}
-        <div className="card" style={{ padding: '1.25rem', display: 'flex', gap: '0.75rem' }}>
-          <button onClick={handleCash} className="btn-primary" style={{ flex: 1, justifyContent: 'center', gap: '0.5rem', display: 'flex', alignItems: 'center', backgroundColor: 'var(--c-success)' }}>
-            <Banknote size={22} /> Cash
+        <div className="card payment-grid" style={{ padding: '1.25rem' }}>
+          <button onClick={handleCash} disabled={isProcessing} className="btn-primary" style={{ flex: 1, justifyContent: 'center', gap: '0.5rem', display: 'flex', alignItems: 'center', backgroundColor: isProcessing ? '#94a3b8' : 'var(--c-success)' }}>
+            <Banknote size={22} /> {isProcessing ? 'Saving...' : 'Cash'}
           </button>
-          <button onClick={handleCard} className="btn-primary" style={{ flex: 1, justifyContent: 'center', gap: '0.5rem', display: 'flex', alignItems: 'center', backgroundColor: '#2563eb' }}>
-            <CreditCard size={22} /> Card
+          <button onClick={handleCard} disabled={isProcessing} className="btn-primary" style={{ flex: 1, justifyContent: 'center', gap: '0.5rem', display: 'flex', alignItems: 'center', backgroundColor: isProcessing ? '#94a3b8' : '#2563eb' }}>
+            <CreditCard size={22} /> {isProcessing ? 'Saving...' : 'Card'}
           </button>
-          <button onClick={handleGpay} className="btn-primary" style={{ flex: 1, justifyContent: 'center', gap: '0.5rem', display: 'flex', alignItems: 'center', backgroundColor: '#6366f1' }}>
-            <Smartphone size={22} /> GPay/UPI
+          <button onClick={handleGpay} disabled={isProcessing} className="btn-primary" style={{ flex: 1, justifyContent: 'center', gap: '0.5rem', display: 'flex', alignItems: 'center', backgroundColor: isProcessing ? '#94a3b8' : '#6366f1' }}>
+            <Smartphone size={22} /> {isProcessing ? 'Saving...' : 'GPay/UPI'}
           </button>
         </div>
 
         {/* Change calculator */}
-        <div className="card" style={{ padding: '1.25rem', display: 'flex', gap: '1.5rem', alignItems: 'center' }}>
+        <div className="card calculator-card" style={{ padding: '1.25rem', display: 'flex', gap: '1.5rem', alignItems: 'center' }}>
           <div style={{ flex: 1 }}>
             <label style={{ fontSize: '0.75rem', display: 'block', marginBottom: '0.25rem', fontWeight: 700 }}>Cash Received</label>
             <input type="number" value={receivedAmount} onChange={e => setReceivedAmount(e.target.value)} placeholder="0.00" style={{ fontSize: '1.3rem', fontWeight: 700 }} />
@@ -690,8 +760,8 @@ const Sales = () => {
           <div style={{ display: 'flex', gap: '2rem', alignItems: 'flex-start' }}>
             <ThermalReceipt tx={lastTransaction} settings={sysSettings} />
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-               <button onClick={handleDirectPrint} className="btn-primary" style={{ padding: '1.25rem 2rem', fontSize: '1.1rem', gap: '0.75rem', display: 'flex', alignItems: 'center' }}>
-                <Printer size={24} /> Print Receipt
+             <button onClick={handleDirectPrint} disabled={isPrinting} className="btn-primary" style={{ padding: '1.25rem 2rem', fontSize: '1.1rem', gap: '0.75rem', display: 'flex', alignItems: 'center', backgroundColor: isPrinting ? '#94a3b8' : 'var(--c-wave)' }}>
+                <Printer size={24} /> {isPrinting ? 'Printing...' : 'Print Receipt'}
               </button>
               <button onClick={() => { setShowReceipt(false); setCart([]); setReceivedAmount(''); setDiscount(''); }}
                 style={{ padding: '1.25rem 2rem', fontSize: '1.1rem', border: '2px solid rgba(255,255,255,0.35)', color: 'white', borderRadius: 8, fontWeight: 700, background: 'transparent', cursor: 'pointer' }}>
