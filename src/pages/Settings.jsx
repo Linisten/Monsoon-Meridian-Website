@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { Save, Building, Phone, Mail, MapPin, Receipt, Smartphone, CheckCircle } from 'lucide-react';
+import { Save, Building, Phone, Mail, MapPin, Receipt, Smartphone, CheckCircle, Printer, RefreshCw, AlertCircle } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { supabase } from '../config/supabaseClient';
+import qzHelper from '../utils/qzHelper';
+import SearchableSelect from '../components/SearchableSelect';
 
 const INSTAGRAM_HANDLE = 'monsoonmeridian';
 const INSTAGRAM_URL    = `https://www.instagram.com/${INSTAGRAM_HANDLE}/`;
@@ -29,14 +30,30 @@ const Settings = () => {
     email: 'info@monsoonmeridian.com',
     gst_no: '32AABCU9603R1ZX',
     upi_id: '9846137892@rapl',
+    thermal_printer_name: '',
   });
+  const [printers, setPrinters] = useState([]);
+  const [qzStatus, setQzStatus] = useState('checking'); // 'checking', 'connected', 'failed'
   const [settingsId, setSettingsId] = useState(null);
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     loadSettings();
+    detectPrinters();
   }, []);
+
+  const detectPrinters = async () => {
+    try {
+      setQzStatus('checking');
+      const list = await qzHelper.findPrinters();
+      setPrinters(list || []);
+      setQzStatus('connected');
+    } catch (err) {
+      console.error('QZ detection failed:', err);
+      setQzStatus('failed');
+    }
+  };
 
   const loadSettings = async () => {
     const { data, error } = await supabase.from('settings').select('*').limit(1).single();
@@ -49,6 +66,7 @@ const Settings = () => {
         email: data.email || '',
         gst_no: data.gst_no || '',
         upi_id: data.upi_id || '',
+        thermal_printer_name: data.thermal_printer_name || '',
       });
       setSettingsId(data.id);
     }
@@ -113,10 +131,63 @@ const Settings = () => {
           <Field label="GST Registration Number" icon={Receipt} value={form.gst_no} onChange={v => handleChange('gst_no', v)} />
           <Field label="UPI Payment ID" icon={Smartphone} value={form.upi_id} onChange={v => handleChange('upi_id', v)} />
         </div>
-        <div style={{ display: 'flex', gap: '0.75rem', padding: '1rem', background: '#eff6ff', borderRadius: 8, border: '1px solid #bfdbfe', alignItems: 'flex-start' }}>
-          <Smartphone size={18} color="#2563eb" style={{ marginTop: 2 }} />
-          <p style={{ margin: 0, color: '#1e40af', fontSize: '0.9rem' }}>
-            Your UPI ID is used to generate live payment QR codes at checkout. Ensure it is active and linked to your business bank account.
+        </div>
+
+      {/* Hardware / Printer Settings */}
+      <div className="card" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid var(--c-border)', paddingBottom: '0.75rem' }}>
+          <h2 style={{ fontSize: '1.3rem', fontWeight: 800, margin: 0 }}>
+            Hardware & Printing
+          </h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', fontWeight: 700 }}>
+             {qzStatus === 'connected' && <span style={{ color: 'var(--c-success)', display: 'flex', alignItems: 'center', gap: '4px' }}><CheckCircle size={14}/> QZ Tray Active</span>}
+             {qzStatus === 'checking' && <span style={{ color: 'var(--c-info)' }}>Checking QZ Tray...</span>}
+             {qzStatus === 'failed' && <span style={{ color: 'var(--c-danger)', display: 'flex', alignItems: 'center', gap: '4px' }}><AlertCircle size={14}/> QZ Tray Not Found</span>}
+             <button onClick={detectPrinters} style={{ color: 'var(--c-wave)', background: 'none', border: 'none', cursor: 'pointer' }}><RefreshCw size={14} /></button>
+          </div>
+        </div>
+
+        <div>
+          <label style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--c-text-secondary)', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
+            <Printer size={15} /> Select Thermal Printer
+          </label>
+          {qzStatus === 'failed' ? (
+            <div style={{ padding: '1rem', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#991b1b', fontSize: '0.9rem' }}>
+              <b>QZ Tray Connection Failed.</b><br/>
+              Please ensure <a href="https://qz.io/download/" target="_blank" rel="noreferrer" style={{color: '#dc2626', textDecoration: 'underline'}}>QZ Tray</a> is installed and running on this computer to use direct printing.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', gap: '1rem' }}>
+              <div style={{ flex: 1 }}>
+                <SearchableSelect 
+                  options={printers}
+                  value={form.thermal_printer_name}
+                  onChange={val => handleChange('thermal_printer_name', val)}
+                  placeholder={qzStatus === 'checking' ? 'Scanning for printers...' : 'Pick a printer from live devices...'}
+                />
+              </div>
+              <button 
+                onClick={async () => {
+                  if (!form.thermal_printer_name) return alert('Select a printer first');
+                  try {
+                    const testCmds = qzHelper.constructor.Commands.INIT + 
+                                     qzHelper.constructor.Commands.ALIGN_CENTER + 
+                                     '\x1B\x21\x30' + 'TEST PRINT\x0A' + 
+                                     '\x1B\x21\x00' + 'Connection successful!\x0A\x0A\x0A' + 
+                                     qzHelper.constructor.Commands.CUT;
+                    await qzHelper.print(form.thermal_printer_name, testCmds);
+                  } catch (e) { alert('Print failed: ' + e.message); }
+                }}
+                className="btn-secondary" 
+                style={{ padding: '0.5rem 1.5rem', height: 46 }}
+                disabled={!form.thermal_printer_name}
+              >
+                Test Print
+              </button>
+            </div>
+          )}
+          <p style={{ fontSize: '0.75rem', color: 'var(--c-text-secondary)', marginTop: '0.5rem' }}>
+            Direct printing uses ESC/POS commands for faster, cleaner receipts without a print dialog.
           </p>
         </div>
       </div>

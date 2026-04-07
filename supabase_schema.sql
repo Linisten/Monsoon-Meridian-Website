@@ -64,6 +64,7 @@ create table if not exists public.settings (
   razorpay_key     text,
   app_version      text default '1.0.0',
   update_message   text,
+  thermal_printer_name text,
   created_at       timestamptz default now()
 );
 

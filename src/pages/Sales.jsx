@@ -5,6 +5,7 @@ import { Scanner } from '@yudiel/react-qr-scanner';
 import { supabase } from '../config/supabaseClient';
 import UpiPaymentModal from '../components/UpiPaymentModal';
 import SearchableSelect from '../components/SearchableSelect';
+import qzHelper from '../utils/qzHelper';
 
 // Category pastel palettes: [background, text, border-accent]
 const ITEM_COLORS = {
@@ -349,6 +350,27 @@ const Sales = () => {
     persistSale('CARD_MANUAL');
   };
 
+  // ── Thermal Direct Print ──────────────────────────────────────────────
+  const handleDirectPrint = async () => {
+    if (!lastTransaction) return;
+    const printer = sysSettings?.thermal_printer_name;
+
+    if (!printer) {
+      alert('No thermal printer selected! Please select one in Settings.');
+      window.print(); // Fallback
+      return;
+    }
+
+    try {
+      const cmds = qzHelper.constructor.buildReceiptCommands(lastTransaction, sysSettings);
+      await qzHelper.print(printer, cmds);
+    } catch (err) {
+      console.error('Direct print failed:', err);
+      alert('Direct print failed: ' + err.message + '\n\nFalling back to browser print.');
+      window.print();
+    }
+  };
+
   // ── UI ───────────────────────────────────────────────────────────────────
   return (
     <div style={{ height: 'calc(100vh - 120px)', display: 'flex', gap: '1.5rem', position: 'relative' }}>
@@ -668,7 +690,7 @@ const Sales = () => {
           <div style={{ display: 'flex', gap: '2rem', alignItems: 'flex-start' }}>
             <ThermalReceipt tx={lastTransaction} settings={sysSettings} />
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <button onClick={() => window.print()} className="btn-primary" style={{ padding: '1.25rem 2rem', fontSize: '1.1rem', gap: '0.75rem', display: 'flex', alignItems: 'center' }}>
+               <button onClick={handleDirectPrint} className="btn-primary" style={{ padding: '1.25rem 2rem', fontSize: '1.1rem', gap: '0.75rem', display: 'flex', alignItems: 'center' }}>
                 <Printer size={24} /> Print Receipt
               </button>
               <button onClick={() => { setShowReceipt(false); setCart([]); setReceivedAmount(''); setDiscount(''); }}
