@@ -47,15 +47,15 @@ const ThermalReceipt = ({ tx, settings }) => {
   const roundOff      = netAmount - beforeRound; // stored netAmount is already rounded
 
   return (
-    <div id="thermal-receipt" style={{ backgroundColor: 'white', padding: '1rem', width: '300px', fontFamily: 'monospace', fontSize: '14px', color: '#000', fontWeight: 600, lineHeight: 1.2 }}>
+    <div id="thermal-receipt" style={{ backgroundColor: 'white', padding: '5px', width: '100%', boxSizing: 'border-box', fontFamily: "'Inter', sans-serif", fontSize: '13px', color: '#000', fontWeight: 500, lineHeight: 1.3 }}>
       {/* ── Header ── */}
-      <div style={{ textAlign: 'center', borderBottom: '2px dashed #000', paddingBottom: '0.75rem', marginBottom: '0.75rem' }}>
+      <div style={{ textAlign: 'center', borderBottom: '1.5px solid #000', paddingBottom: '0.5rem', marginBottom: '0.5rem' }}>
         <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 900, color: '#000', letterSpacing: '0.02em' }}>{settings?.company_name || 'MONSOON MERIDIAN'}</h2>
         {settings?.address && <p style={{ margin: '4px 0', fontSize: '13px', color: '#000', fontWeight: 700 }}>{settings.address}</p>}
-        <p style={{ margin: '0', fontSize: '12px', color: '#000', fontWeight: 700 }}>
+        <div style={{ margin: '0', fontSize: '12px', color: '#000', fontWeight: 700 }}>
           {settings?.phone && <div>Tel: {settings.phone}</div>}
           {settings?.gst_no && <div>GSTIN: {settings.gst_no}</div>}
-        </p>
+        </div>
       </div>
 
       {/* ── Meta ── */}
@@ -67,7 +67,7 @@ const ThermalReceipt = ({ tx, settings }) => {
       </div>
 
       {/* ── Items ── */}
-      <div style={{ borderBottom: '2px dashed #000', paddingBottom: '3px', marginBottom: '3px', display: 'grid', gridTemplateColumns: '1fr 35px 65px', fontWeight: 900, fontSize: '12px', color: '#000' }}>
+      <div style={{ borderBottom: '1.5px solid #000', paddingBottom: '2px', marginBottom: '3px', display: 'grid', gridTemplateColumns: '1fr 35px 65px', fontWeight: 800, fontSize: '11px', color: '#000', textTransform: 'uppercase' }}>
         <span>Item</span><span style={{ textAlign: 'center' }}>Qty</span><span style={{ textAlign: 'right' }}>Amt</span>
       </div>
       {tx.items_json?.map((it, i) => {
@@ -106,22 +106,21 @@ const ThermalReceipt = ({ tx, settings }) => {
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#000', fontWeight: 700 }}><span>Round Off</span><span>{roundOff >= 0 ? '+' : ''}{roundOff.toFixed(2)}</span></div>
         )}
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 950, fontSize: '1.4rem', borderTop: '2.5px solid #000', marginTop: '8px', paddingTop: '8px', color: '#000' }}>
-          <span>NET TOTAL</span><span>₹{netAmount.toFixed(2)}</span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 900, fontSize: '1.5rem', borderTop: '2px solid #000', marginTop: '6px', paddingTop: '6px', color: '#000' }}>
+          <span>TOTAL</span><span>₹{netAmount.toFixed(2)}</span>
         </div>
       </div>
 
 
-      {/* ── Instagram QR ── */}
       <div style={{
-        marginTop: '1rem',
-        borderRadius: '12px',
-        border: '2px solid #000',
-        padding: '1rem',
+        marginTop: '0.75rem',
+        borderRadius: '8px',
+        border: '1.5px solid #000',
+        padding: '0.5rem',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        gap: '0.5rem',
+        gap: '0.4rem',
       }}>
         {/* Mini Instagram wordmark */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -136,7 +135,7 @@ const ThermalReceipt = ({ tx, settings }) => {
         {/* QR Code */}
         <QRCodeSVG
           value={INSTAGRAM_URL}
-          size={140}
+          size={110}
           level="M"
           includeMargin={false}
           fgColor="#000000"
@@ -144,25 +143,23 @@ const ThermalReceipt = ({ tx, settings }) => {
 
         {/* Handle */}
         <div style={{
-          fontSize: '14px',
-          fontWeight: 950,
-          letterSpacing: '0.08em',
+          fontSize: '13px',
+          fontWeight: 900,
+          letterSpacing: '0.05em',
           color: '#000',
-          fontFamily: 'monospace',
+          fontFamily: "'Inter', sans-serif",
           borderTop: '1px solid #000',
-          paddingTop: '4px',
-          marginTop: '4px'
+          paddingTop: '2px',
+          marginTop: '2px'
         }}>
           @{INSTAGRAM_HANDLE.toUpperCase()}
         </div>
       </div>
 
       {/* ── Thank You ── */}
-      <div style={{ textAlign: 'center', marginTop: '1rem', paddingTop: '1rem', borderTop: '2.5px dashed #000' }}>
-        <p style={{ margin: 0, fontWeight: 950, letterSpacing: '0.08em', fontSize: '16px', color: '#000' }}>*** THANK YOU — VISIT AGAIN ***</p>
+      <div style={{ textAlign: 'center', marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1.2px dashed #000' }}>
+        <p style={{ margin: 0, fontWeight: 900, letterSpacing: '0.02em', fontSize: '13px', color: '#000' }}>*** THANK YOU — VISIT AGAIN ***</p>
       </div>
-
-
     </div>
   );
 };
@@ -367,20 +364,24 @@ const Sales = () => {
 
     const printer = sysSettings?.thermal_printer_name;
 
-    if (!printer) {
-      alert('No thermal printer selected! Please select one in Settings.');
-      window.print(); // Fallback
-      setIsPrinting(false);
-      return;
+    // Path A: Direct Printing via QZ Tray (HTML for better layout)
+    if (printer) {
+      try {
+        await qzHelper.printHTML(printer, 'thermal-receipt');
+        setIsPrinting(false);
+        return;
+      } catch (err) {
+        console.warn('Direct QZ HTML print failed, falling back to browser print:', err);
+      }
     }
 
+    // Path B: Universal Browser Print (Hidden Iframe)
+    // This is the fallback if no printer is selected OR QZ Tray fails.
     try {
-      const cmds = qzHelper.constructor.buildReceiptCommands(lastTransaction, sysSettings);
-      await qzHelper.print(printer, cmds);
+      await qzHelper.printViaBrowser('thermal-receipt');
     } catch (err) {
-      console.error('Direct print failed:', err);
-      alert('Direct print failed: ' + err.message + '\n\nFalling back to browser print.');
-      window.print();
+      console.error('Browser print failed:', err);
+      alert('Print failed. Please check your printer connection.');
     } finally {
       setIsPrinting(false);
     }
@@ -756,13 +757,22 @@ const Sales = () => {
 
       {/* ─── OVERLAY: Thermal Receipt ────────────────────────────────────── */}
       {showReceipt && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15,23,42,0.85)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem' }}>
-          <div style={{ display: 'flex', gap: '2rem', alignItems: 'flex-start' }}>
-            <ThermalReceipt tx={lastTransaction} settings={sysSettings} />
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-             <button onClick={handleDirectPrint} disabled={isPrinting} className="btn-primary" style={{ padding: '1.25rem 2rem', fontSize: '1.1rem', gap: '0.75rem', display: 'flex', alignItems: 'center', backgroundColor: isPrinting ? '#94a3b8' : 'var(--c-wave)' }}>
-                <Printer size={24} /> {isPrinting ? 'Printing...' : 'Print Receipt'}
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15,23,42,0.92)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', overflowY: 'auto' }}>
+          <div style={{ display: 'flex', gap: '2rem', alignItems: 'flex-start', maxWidth: '100%', padding: '2rem 0' }}>
+            <div style={{ flexShrink: 0 }}>
+              <ThermalReceipt tx={lastTransaction} settings={sysSettings} />
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', position: 'sticky', top: '2rem' }}>
+              <button onClick={handleDirectPrint} disabled={isPrinting} className="btn-primary" style={{ padding: '1.25rem 2rem', fontSize: '1.1rem', gap: '0.75rem', display: 'flex', alignItems: 'center', backgroundColor: isPrinting ? '#94a3b8' : 'var(--c-wave)' }}>
+                <Printer size={24} /> {isPrinting ? 'Printing...' : (sysSettings?.thermal_printer_name ? 'Direct Print' : 'Print Receipt')}
               </button>
+              
+              {sysSettings?.thermal_printer_name && (
+                <button onClick={() => qzHelper.printViaBrowser('thermal-receipt')} className="btn-secondary" style={{ padding: '1rem', fontSize: '0.9rem', color: 'white', borderColor: 'rgba(255,255,255,0.3)' }}>
+                  Fallback: Browser Print
+                </button>
+              )}
+
               <button onClick={() => { setShowReceipt(false); setCart([]); setReceivedAmount(''); setDiscount(''); }}
                 style={{ padding: '1.25rem 2rem', fontSize: '1.1rem', border: '2px solid rgba(255,255,255,0.35)', color: 'white', borderRadius: 8, fontWeight: 700, background: 'transparent', cursor: 'pointer' }}>
                 Close & New Sale

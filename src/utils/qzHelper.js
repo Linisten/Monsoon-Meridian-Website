@@ -1,4 +1,5 @@
 import qz from 'qz-tray';
+import { setupQZSecurity } from './qzSecurity';
 
 /**
  * Singleton Helper for QZ Tray Hardware Operations
@@ -7,6 +8,19 @@ class QZHelper {
   constructor() {
     this.isConnected = false;
     this.connectionPromise = null;
+    this.init(); // Auto-init on creation
+  }
+
+  /**
+   * Helper to pre-connect QZ Tray on app load. 
+   * This triggers the security popup once at the start so it's not annoying during a sale.
+   */
+  async init() {
+    try {
+      await this.connect();
+    } catch (e) {
+      console.warn('QZ Tray not running or not found on startup.');
+    }
   }
 
   /**
@@ -15,6 +29,9 @@ class QZHelper {
   async connect() {
     if (this.isConnected) return true;
     if (this.connectionPromise) return this.connectionPromise;
+
+    // Setup digital signing before connecting
+    await setupQZSecurity(qz);
 
     this.connectionPromise = qz.websocket.connect()
       .then(() => {
@@ -56,10 +73,143 @@ class QZHelper {
       {
         type: 'raw',
         format: 'command',
-        flavor: 'escpos',
         data: commands
       }
     ]);
+  }
+
+  /**
+   * Print HTML content through QZ Tray
+   * This is the best way to match the web UI design on a physical printer.
+   */
+  async printHTML(printerName, elementId) {
+    if (!printerName) throw new Error('No printer name specified');
+    const receiptElement = document.getElementById(elementId);
+    if (!receiptElement) throw new Error('Receipt element not found');
+
+    await this.connect();
+
+    const config = qz.configs.create(printerName, {
+      size: { width: 80 }, 
+      units: 'mm',
+      density: 203, // Common for thermal printers
+      margins: 0,
+      interpolation: 'nearest-neighbor',
+    });
+
+    // Simplified CSS for maximum compatibility during rendering
+    const printerCss = `
+      body {
+        width: 100%; 
+        margin: 0;
+        padding: 5px;
+        font-family: Arial, Helvetica, sans-serif;
+        font-size: 13px;
+        line-height: 1.3;
+        color: #000;
+        background: #fff;
+      }
+      * { box-sizing: border-box; }
+      .text-center { text-align: center; }
+      .bold { font-weight: bold; }
+      table { width: 100%; border-collapse: collapse; }
+      td { padding: 2px 0; }
+    `;
+
+    const printData = [
+      {
+        type: 'pixel',
+        format: 'html',
+        flavor: 'plain',
+        data: `
+          <html>
+            <head>
+              <style>${printerCss}</style>
+            </head>
+            <body>
+              ${receiptElement.innerHTML}
+            </body>
+          </html>
+        `
+      }
+    ];
+
+    return qz.print(config, printData).catch(err => {
+      console.error('QZ Print Error Details:', err);
+      throw err;
+    });
+  }
+
+  /**
+   * Universal Browser-based Print (No external tools)
+   * Uses a hidden iframe to isolate the receipt and print accurately to 80mm rolls.
+   */
+  async printViaBrowser(elementId) {
+    const receiptElement = document.getElementById(elementId);
+    if (!receiptElement) {
+      console.error('Receipt container not found:', elementId);
+      return;
+    }
+
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    document.body.appendChild(iframe);
+
+    const printerCss = `
+      @media print {
+        @page {
+          size: 79mm auto;
+          margin: 0;
+        }
+        body { margin: 0; padding: 0; }
+      }
+      body {
+        width: 100%;
+        margin: 0;
+        padding: 5px;
+        font-family: 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        font-size: 12px;
+        line-height: 1.4;
+        color: #000;
+        background: #fff;
+      }
+      * { box-sizing: border-box; }
+      .text-center { text-align: center; }
+      .text-right { text-align: right; }
+      .bold { font-weight: bold; }
+      .divider { border-top: 1px dashed #000; margin: 8px 0; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { text-align: left; padding: 2px 0; }
+      .money { text-align: right; }
+      /* Prevent splitting items across pages */
+      tr, .divider, img { page-break-inside: avoid; break-inside: avoid; }
+    `;
+
+    const doc = iframe.contentWindow.document;
+    doc.open();
+    doc.write(`
+      <html>
+        <head>
+          <style>${printerCss}</style>
+        </head>
+        <body>
+          ${receiptElement.innerHTML}
+        </body>
+      </html>
+    `);
+    doc.close();
+
+    // Small delay for rendering/images
+    setTimeout(() => {
+      iframe.contentWindow.focus();
+      iframe.contentWindow.print();
+      setTimeout(() => document.body.removeChild(iframe), 1000);
+    }, 500);
   }
 
   /**
@@ -76,8 +226,9 @@ class QZHelper {
     TEXT_DOUBLE_SIZE: '\x1B\x21\x30',
     CUT: '\x1D\x56\x01',
     LINE_FEED: '\x0A',
-    DASHED_LINE: '--------------------------------\x0A', // 32 chars (58mm)
+    DASHED_LINE: '--------------------------------\x0A',    // 32 chars (58mm)
     DASHED_LINE_80: '------------------------------------------------\x0A', // 48 chars (80mm)
+    CUT_PAPER: '\x1D\x56\x01',
   };
 
   /**
