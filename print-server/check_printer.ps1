@@ -1,0 +1,5 @@
+$prn = Get-Printer -Name "POS-80"
+Write-Host "Driver: $($prn.DriverName)"
+Write-Host "Port: $($prn.PortName)"
+Write-Host "Shared: $($prn.Shared)"
+Write-Host "ShareName: $($prn.ShareName)"

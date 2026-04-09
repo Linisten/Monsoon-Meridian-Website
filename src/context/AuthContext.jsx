@@ -9,10 +9,18 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
 
   useEffect(() => {
+    if (!supabase) {
+      setLoading(false);
+      return;
+    }
+
     // Check active sessions and sets the user
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
       setIsAuthenticated(!!session?.user);
+      setLoading(false);
+    }).catch(err => {
+      console.error("Session fetch error:", err);
       setLoading(false);
     });
 
@@ -27,6 +35,10 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const login = async (email, password) => {
+    if (!supabase) {
+      console.warn("Supabase not initialized. Cannot log in.");
+      return false;
+    }
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) { console.error('Login error:', error.message); return false; }
@@ -38,7 +50,9 @@ export const AuthProvider = ({ children }) => {
   };
 
   const logout = async () => {
-    await supabase.auth.signOut();
+    if (supabase) {
+      await supabase.auth.signOut();
+    }
   };
 
   if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>Loading...</div>;

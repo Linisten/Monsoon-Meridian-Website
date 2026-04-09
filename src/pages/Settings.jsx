@@ -33,7 +33,8 @@ const Settings = () => {
     upi_id: '9846137892@rapl',
     thermal_printer_name: '',
   });
-  const [isSerialConnected, setIsSerialConnected] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
+  const [connectionType, setConnectionType] = useState(null);
   const [settingsId, setSettingsId] = useState(null);
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -45,10 +46,22 @@ const Settings = () => {
   const connectSerial = async () => {
     try {
       await serialHelper.requestPort();
-      setIsSerialConnected(true);
+      setIsConnected(true);
+      setConnectionType('Serial');
       alert('Serial Printer Connected Successfully!');
     } catch (err) {
       alert('Serial Connection Failed: ' + err.message);
+    }
+  };
+
+  const connectUsb = async () => {
+    try {
+      await serialHelper.requestUsbPort();
+      setIsConnected(true);
+      setConnectionType('USB');
+      alert('USB Printer Connected Successfully!');
+    } catch (err) {
+      alert('USB Connection Failed: ' + err.message);
     }
   };
 
@@ -158,25 +171,30 @@ const Settings = () => {
 
         <div style={{ padding: '1.5rem', background: '#f8fafc', border: '2px dashed #cbd5e1', borderRadius: 12, textAlign: 'center' }}>
           <Printer size={32} style={{ color: 'var(--c-text-secondary)', marginBottom: '0.5rem' }} />
-          <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 800 }}>Web Serial Connection</h3>
+          <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 800 }}>Direct Hardware Connection</h3>
           <p style={{ fontSize: '0.85rem', color: 'var(--c-text-secondary)', margin: '0.5rem 0 1rem 0' }}>
             Connect directly to your USB/Serial printer from the browser. 
-            {isSerialConnected ? <span style={{ color: 'var(--c-success)', fontWeight: 700 }}> (Currently Connected)</span> : ' (Not Connected)'}
+            {isConnected ? <span style={{ color: 'var(--c-success)', fontWeight: 700 }}> (Connected via {connectionType})</span> : ' (Not Connected)'}
           </p>
-          <button onClick={connectSerial} className="btn-primary" style={{ padding: '0.5rem 1.5rem' }}>
-            {isSerialConnected ? 'Reconnect Printer' : 'Connect Printer'}
-          </button>
+          <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+            <button onClick={connectSerial} className="btn-primary" style={{ padding: '0.5rem 1.5rem' }}>
+              Connect via Serial (VCOM)
+            </button>
+            <button onClick={connectUsb} className="btn-primary" style={{ padding: '0.5rem 1.5rem', backgroundColor: '#8b5cf6' }}>
+              Connect via USB (Raw)
+            </button>
+          </div>
         </div>
 
         <button 
           onClick={async () => {
             try {
               const demoTx = { total_amount: 0, items_json: [], id: 'TEST', date: new Date().toLocaleString() };
-              await serialHelper.write('\x1B\x40\x1B\x61\x01TEST SERIAL PRINT\x0A\x1B\x64\x06\x1D\x56\x00');
+              await serialHelper.write('\x1B\x40\x1B\x61\x01TEST PRINT\x0A\x1B\x64\x06\x1D\x56\x00');
             } catch (e) { alert('Test failed: ' + e.message); }
           }}
-          className="btn-secondary" style={{ width: '100%' }} disabled={!isSerialConnected}
-        >Test Serial Print</button>
+          className="btn-secondary" style={{ width: '100%' }} disabled={!isConnected}
+        >Test Print</button>
 
         <p style={{ fontSize: '0.75rem', color: 'var(--c-text-secondary)', marginTop: '0.5rem' }}>
           Direct printing uses ESC/POS commands for faster, cleaner receipts without a print dialog.
@@ -207,17 +225,19 @@ const Settings = () => {
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px' }}><span>Payment:</span><span style={{fontWeight: 900}}>CASH</span></div>
 
           {/* Items sample */}
-          <div style={{ borderTop: '2px dashed #000', marginTop: '1rem', paddingTop: '0.5rem', display: 'grid', gridTemplateColumns: '1fr 40px 60px', fontWeight: 800, marginBottom: '0.5rem' }}>
+          <div style={{ borderTop: '2px dashed #000', marginTop: '1rem', paddingTop: '0.5rem', display: 'grid', gridTemplateColumns: '1fr 60px 60px', fontWeight: 800, marginBottom: '0.5rem' }}>
             <span>Item</span><span style={{ textAlign: 'center' }}>Qty</span><span style={{ textAlign: 'right' }}>Amt</span>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 40px 60px', marginBottom: '4px', fontSize: '15px' }}>
-            <span>Sample Item</span><span style={{ textAlign: 'center' }}>2</span><span style={{ textAlign: 'right' }}>200.00</span>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 60px 60px', marginBottom: '4px', fontSize: '15px' }}>
+            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Sample Item</span><span style={{ textAlign: 'center' }}>2 nos</span><span style={{ textAlign: 'right' }}>200.00</span>
           </div>
 
           {/* Totals */}
           <div style={{ borderTop: '2.5px dashed #000', marginTop: '1rem', paddingTop: '0.75rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px' }}><span>Gross Total</span><span style={{fontWeight: 900}}>₹200.00</span></div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 900, borderTop: '3px solid #000', marginTop: '8px', paddingTop: '8px', fontSize: '1.4rem' }}><span>NET TOTAL</span><span>₹200.00</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px', color: '#000', marginBottom: '3px' }}><span>Gross Total</span><span style={{fontWeight: 900}}>₹200.00</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px', color: '#000', marginBottom: '3px' }}><span>Discount</span><span style={{fontWeight: 900}}>-₹0.00</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px', color: '#000', marginBottom: '3px' }}><span>Tax (18%)</span><span style={{fontWeight: 900}}>+₹36.00</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 900, borderTop: '3px solid #000', marginTop: '8px', paddingTop: '8px', fontSize: '1.25rem' }}><span>NET AMOUNT DUE</span><span>₹236.00</span></div>
           </div>
 
           {/* Instagram QR */}

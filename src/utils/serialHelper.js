@@ -9,6 +9,9 @@ class SerialHelper {
     constructor() {
         this.port = null;
         this.writer = null;
+        this.usbDevice = null;
+        this.usbEndpoint = null;
+        this.connectionType = null; // 'serial' or 'usb'
         this.isConnecting = false;
     }
 
@@ -26,6 +29,7 @@ class SerialHelper {
         WIDE_OFF: '\x1D\x21\x00',
     };
 
+    /** Connect using Web Serial API (Needs Virtual COM Port) */
     async requestPort() {
         if (this.isConnecting) return;
         try {
@@ -34,6 +38,8 @@ class SerialHelper {
             this.port = await navigator.serial.requestPort();
             await this.port.open({ baudRate: 9600 });
             this.writer = this.port.writable.getWriter();
+            this.connectionType = 'serial';
+            this.usbDevice = null;
             return true;
         } catch (err) {
             console.error("Serial Connection Failed:", err);
@@ -43,17 +49,65 @@ class SerialHelper {
         }
     }
 
-    async write(content) {
-        if (!this.writer) {
-            if (this.port && this.port.writable) {
-                this.writer = this.port.writable.getWriter();
-            } else {
-                throw new Error("Printer not connected. Please click 'Connect Printer' in Settings.");
+    /** Connect using WebUSB API (For Raw USB Printers) */
+    async requestUsbPort() {
+        if (this.isConnecting) return;
+        try {
+            this.isConnecting = true;
+            if (!navigator.usb) throw new Error("WebUSB API not supported. Use Chrome/Edge.");
+            
+            // Use empty filters to show all USB devices
+            this.usbDevice = await navigator.usb.requestDevice({ filters: [] });
+            await this.usbDevice.open();
+            
+            if (this.usbDevice.configuration === null) {
+                await this.usbDevice.selectConfiguration(1);
             }
+            
+            // Claim interface 0 (standard for printers)
+            await this.usbDevice.claimInterface(0);
+            
+            const endpoints = this.usbDevice.configuration.interfaces[0].alternate.endpoints;
+            const outEndpoint = endpoints.find(e => e.direction === 'out');
+            
+            if (!outEndpoint) {
+                throw new Error("No OUT endpoint found on printer.");
+            }
+            
+            this.usbEndpoint = outEndpoint.endpointNumber;
+            this.connectionType = 'usb';
+            this.port = null;
+            this.writer = null;
+            return true;
+        } catch (err) {
+            console.error("USB Connection Failed:", err);
+            throw err;
+        } finally {
+            this.isConnecting = false;
         }
+    }
+
+    async write(content) {
         const encoder = new TextEncoder();
         const data = typeof content === 'string' ? encoder.encode(content) : content;
-        await this.writer.write(data);
+
+        if (this.connectionType === 'serial') {
+            if (!this.writer) {
+                if (this.port && this.port.writable) {
+                    this.writer = this.port.writable.getWriter();
+                } else {
+                    throw new Error("Serial printer not connected.");
+                }
+            }
+            await this.writer.write(data);
+        } else if (this.connectionType === 'usb') {
+            if (!this.usbDevice || !this.usbEndpoint) {
+                throw new Error("USB printer not connected.");
+            }
+            await this.usbDevice.transferOut(this.usbEndpoint, data);
+        } else {
+            throw new Error("Printer not connected. Please click one of the Connect buttons.");
+        }
     }
 
     /**

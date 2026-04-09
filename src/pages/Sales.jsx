@@ -5,7 +5,7 @@ import { Scanner } from '@yudiel/react-qr-scanner';
 import { supabase } from '../config/supabaseClient';
 import UpiPaymentModal from '../components/UpiPaymentModal';
 import SearchableSelect from '../components/SearchableSelect';
-import serialHelper from '../utils/serialHelper';
+import { printReceipt } from '../utils/printService';
 
 // Category pastel palettes: [background, text, border-accent]
 const ITEM_COLORS = {
@@ -72,11 +72,16 @@ const ThermalReceipt = ({ tx, settings }) => {
       </div>
       {tx.items_json?.map((it, i) => {
         const rate = it.price || it.rate || 0;
+        const qNum = it.qty || 1;
+        const unitPart = (it.unit || it.pack || '').toLowerCase();
+        const isNos = unitPart === 'nos' || unitPart === '' || unitPart === 'pc' || unitPart === 'pcs';
+        const unitLabel = isNos ? 'nos' : unitPart;
+        
         return (
           <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 35px 65px', margin: '2px 0', fontSize: '12px', color: '#000', fontWeight: 800 }}>
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.name}</span>
-            <span style={{ textAlign: 'center' }}>{it.qty}</span>
-            <span style={{ textAlign: 'right' }}>{(rate * it.qty).toFixed(2)}</span>
+            <span style={{ textAlign: 'center' }}>{qNum} {unitLabel}</span>
+            <span style={{ textAlign: 'right' }}>{(rate * qNum).toFixed(2)}</span>
           </div>
         );
       })}
@@ -106,8 +111,8 @@ const ThermalReceipt = ({ tx, settings }) => {
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#000', fontWeight: 700 }}><span>Round Off</span><span>{roundOff >= 0 ? '+' : ''}{roundOff.toFixed(2)}</span></div>
         )}
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 900, fontSize: '1.5rem', borderTop: '2px solid #000', marginTop: '6px', paddingTop: '6px', color: '#000' }}>
-          <span>TOTAL</span><span>₹{netAmount.toFixed(2)}</span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 900, fontSize: '1.25rem', borderTop: '2px solid #000', marginTop: '6px', paddingTop: '6px', color: '#000' }}>
+          <span>NET AMOUNT DUE</span><span>₹{netAmount.toFixed(2)}</span>
         </div>
       </div>
 
@@ -357,23 +362,21 @@ const Sales = () => {
     persistSale('CARD_MANUAL');
   };
 
-  // ── Thermal Direct Print ──────────────────────────────────────────────
+  // ── Thermal Direct Print (via local Node.js print server) ───────────────
   const handleDirectPrint = async () => {
     if (!lastTransaction || isPrinting) return;
     setIsPrinting(true);
 
     try {
-      // Primary: Web Serial (Free native printing)
-      await serialHelper.printElement('thermal-receipt', lastTransaction, sysSettings);
-    } catch (err) {
-      console.warn('Direct Serial print failed, falling back to browser print:', err);
-      try {
-        // Fallback: Default Browser Print
-        await serialHelper.write('\x1B\x40'); // Reset printer if it was in a weird state
-        window.print(); 
-      } catch (fallbackErr) {
-        alert('Print failed. Please verify your printer is connected.');
+      const result = await printReceipt(lastTransaction, sysSettings);
+      if (!result.success) {
+        // Fallback: browser print dialog if server is not running
+        console.warn('Print server error, falling back to browser print:', result.error);
+        window.print();
       }
+    } catch (err) {
+      console.warn('Print failed, falling back to browser print:', err);
+      window.print();
     } finally {
       setIsPrinting(false);
     }
@@ -696,7 +699,7 @@ const Sales = () => {
                     
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
                       <span style={{ fontSize: '0.8rem', color: isLow ? '#ef4444' : 'var(--c-text-secondary)', fontWeight: isLow ? 700 : 500 }}>
-                        {(it.unit || it.pack) === 'NOS' ? '1 pc' : (it.unit || it.pack || '1 pc')} {isLow && <span style={{color: '#ef4444'}}>⚠</span>}
+                        {(it.unit || it.pack) === 'NOS' ? '1 nos' : (it.unit || it.pack || '1 nos')} {isLow && <span style={{color: '#ef4444'}}>⚠</span>}
                       </span>
                       <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#000', backgroundColor: '#FFD300', padding: '0.2rem 0.6rem', borderRadius: '1rem' }}>
                         ₹{price.toFixed(2)}
