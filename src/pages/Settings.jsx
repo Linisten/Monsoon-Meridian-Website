@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Building, Phone, Mail, MapPin, Receipt, Smartphone, CheckCircle, Printer, RefreshCw, AlertCircle } from 'lucide-react';
+import { Save, Building, Phone, Mail, MapPin, Receipt, Smartphone, CheckCircle, Printer, AlertCircle } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { supabase } from '../config/supabaseClient';
-import qzHelper from '../utils/qzHelper';
+import serialHelper from '../utils/serialHelper';
 import SearchableSelect from '../components/SearchableSelect';
 
 const INSTAGRAM_HANDLE = 'monsoonmeridian';
@@ -33,26 +33,22 @@ const Settings = () => {
     upi_id: '9846137892@rapl',
     thermal_printer_name: '',
   });
-  const [printers, setPrinters] = useState([]);
-  const [qzStatus, setQzStatus] = useState('checking'); // 'checking', 'connected', 'failed'
+  const [isSerialConnected, setIsSerialConnected] = useState(false);
   const [settingsId, setSettingsId] = useState(null);
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     loadSettings();
-    detectPrinters();
   }, []);
 
-  const detectPrinters = async () => {
+  const connectSerial = async () => {
     try {
-      setQzStatus('checking');
-      const list = await qzHelper.findPrinters();
-      setPrinters(list || []);
-      setQzStatus('connected');
+      await serialHelper.requestPort();
+      setIsSerialConnected(true);
+      alert('Serial Printer Connected Successfully!');
     } catch (err) {
-      console.error('QZ detection failed:', err);
-      setQzStatus('failed');
+      alert('Serial Connection Failed: ' + err.message);
     }
   };
 
@@ -147,7 +143,7 @@ const Settings = () => {
           <Field label="GST Registration Number" icon={Receipt} value={form.gst_no} onChange={v => handleChange('gst_no', v)} />
           <Field label="UPI Payment ID" icon={Smartphone} value={form.upi_id} onChange={v => handleChange('upi_id', v)} />
         </div>
-        </div>
+      </div>
 
       {/* Hardware / Printer Settings */}
       <div className="card" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -155,57 +151,36 @@ const Settings = () => {
           <h2 style={{ fontSize: '1.3rem', fontWeight: 800, margin: 0 }}>
             Hardware & Printing
           </h2>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', fontWeight: 700 }}>
-             {qzStatus === 'connected' && <span style={{ color: 'var(--c-success)', display: 'flex', alignItems: 'center', gap: '4px' }}><CheckCircle size={14}/> QZ Tray Active</span>}
-             {qzStatus === 'checking' && <span style={{ color: 'var(--c-info)' }}>Checking QZ Tray...</span>}
-             {qzStatus === 'failed' && <span style={{ color: 'var(--c-danger)', display: 'flex', alignItems: 'center', gap: '4px' }}><AlertCircle size={14}/> QZ Tray Not Found</span>}
-             <button onClick={detectPrinters} style={{ color: 'var(--c-wave)', background: 'none', border: 'none', cursor: 'pointer' }}><RefreshCw size={14} /></button>
+          <div style={{ padding: '4px 12px', background: 'var(--c-success)', color: 'white', borderRadius: 20, fontSize: '0.75rem', fontWeight: 800 }}>
+            FREE DRIVER ACTIVE
           </div>
         </div>
 
-        <div>
-          <label style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--c-text-secondary)', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem' }}>
-            <Printer size={15} /> Select Thermal Printer
-          </label>
-          {qzStatus === 'failed' ? (
-            <div style={{ padding: '1rem', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#991b1b', fontSize: '0.9rem' }}>
-              <b>QZ Tray Connection Failed.</b><br/>
-              Please ensure <a href="https://qz.io/download/" target="_blank" rel="noreferrer" style={{color: '#dc2626', textDecoration: 'underline'}}>QZ Tray</a> is installed and running on this computer to use direct printing.
-            </div>
-          ) : (
-            <div style={{ display: 'flex', gap: '1rem' }}>
-              <div style={{ flex: 1 }}>
-                <SearchableSelect 
-                  options={printers}
-                  value={form.thermal_printer_name}
-                  onChange={val => handleChange('thermal_printer_name', val)}
-                  placeholder={qzStatus === 'checking' ? 'Scanning for printers...' : 'Pick a printer from live devices...'}
-                />
-              </div>
-              <button 
-                onClick={async () => {
-                  if (!form.thermal_printer_name) return alert('Select a printer first');
-                  try {
-                    const testCmds = qzHelper.constructor.Commands.INIT + 
-                                     qzHelper.constructor.Commands.ALIGN_CENTER + 
-                                     '\x1B\x21\x30' + 'TEST PRINT\x0A' + 
-                                     '\x1B\x21\x00' + 'Connection successful!\x0A' + 
-                                     qzHelper.constructor.Commands.CUT;
-                    await qzHelper.print(form.thermal_printer_name, testCmds);
-                  } catch (e) { alert('Print failed: ' + e.message); }
-                }}
-                className="btn-secondary" 
-                style={{ padding: '0.5rem 1.5rem', height: 46 }}
-                disabled={!form.thermal_printer_name}
-              >
-                Test Print
-              </button>
-            </div>
-          )}
-          <p style={{ fontSize: '0.75rem', color: 'var(--c-text-secondary)', marginTop: '0.5rem' }}>
-            Direct printing uses ESC/POS commands for faster, cleaner receipts without a print dialog.
+        <div style={{ padding: '1.5rem', background: '#f8fafc', border: '2px dashed #cbd5e1', borderRadius: 12, textAlign: 'center' }}>
+          <Printer size={32} style={{ color: 'var(--c-text-secondary)', marginBottom: '0.5rem' }} />
+          <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 800 }}>Web Serial Connection</h3>
+          <p style={{ fontSize: '0.85rem', color: 'var(--c-text-secondary)', margin: '0.5rem 0 1rem 0' }}>
+            Connect directly to your USB/Serial printer from the browser. 
+            {isSerialConnected ? <span style={{ color: 'var(--c-success)', fontWeight: 700 }}> (Currently Connected)</span> : ' (Not Connected)'}
           </p>
+          <button onClick={connectSerial} className="btn-primary" style={{ padding: '0.5rem 1.5rem' }}>
+            {isSerialConnected ? 'Reconnect Printer' : 'Connect Printer'}
+          </button>
         </div>
+
+        <button 
+          onClick={async () => {
+            try {
+              const demoTx = { total_amount: 0, items_json: [], id: 'TEST', date: new Date().toLocaleString() };
+              await serialHelper.write('\x1B\x40\x1B\x61\x01TEST SERIAL PRINT\x0A\x1B\x64\x06\x1D\x56\x00');
+            } catch (e) { alert('Test failed: ' + e.message); }
+          }}
+          className="btn-secondary" style={{ width: '100%' }} disabled={!isSerialConnected}
+        >Test Serial Print</button>
+
+        <p style={{ fontSize: '0.75rem', color: 'var(--c-text-secondary)', marginTop: '0.5rem' }}>
+          Direct printing uses ESC/POS commands for faster, cleaner receipts without a print dialog.
+        </p>
       </div>
 
 
@@ -215,8 +190,8 @@ const Settings = () => {
         <div style={{ background: 'white', border: '3px solid #000', borderRadius: 8, padding: '2rem', fontFamily: 'monospace', fontSize: '1.1rem', maxWidth: 380, color: '#000', fontWeight: 600 }}>
 
           {/* Header */}
-          <div style={{ textAlign: 'center', borderBottom: '2.5px dashed #000', paddingBottom: '1rem', marginBottom: '1rem' }}>
-            <div style={{ fontWeight: 900, fontSize: '1.6rem', color: '#000', letterSpacing: '0.02em' }}>{form.company_name}</div>
+          <div style={{ textAlign: 'center', borderBottom: '2.5px dashed #000', paddingBottom: '1rem', marginBottom: '1rem', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <img src="/logo.jpg" alt="Logo" style={{ width: '300px', height: '120px', objectFit: 'contain', marginBottom: '10px' }} onError={(e) => e.target.style.display = 'none'} />
             {form.address && <div style={{ fontSize: '14px', fontWeight: 700, margin: '4px 0' }}>{form.address}</div>}
             <div style={{ fontSize: '14px', fontWeight: 700 }}>
               {form.phone && `Tel: ${form.phone}`}
@@ -282,7 +257,7 @@ const Settings = () => {
           </div>
 
           {/* Thank you */}
-          <div style={{ borderTop: '2.5px dashed #000', marginTop: '1rem', paddingTop: '1rem', textAlign: 'center', fontWeight: 900, letterSpacing: '0.08em', color: '#000', fontSize: '16px' }}>
+          <div style={{ borderTop: '2.5px dashed #000', marginTop: '1rem', paddingTop: '1rem', textAlign: 'center', fontWeight: 900, letterSpacing: '0.02em', color: '#000', fontSize: '16px' }}>
             *** THANK YOU — VISIT AGAIN ***
           </div>
 

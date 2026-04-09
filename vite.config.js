@@ -13,7 +13,7 @@ if (!globalThis.crypto || !globalThis.crypto.getRandomValues) {
 
 export default defineConfig({
   server: {
-    open: true,
+    open: false,
   },
   build: {
     minify: false,

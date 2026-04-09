@@ -5,7 +5,7 @@ import { Scanner } from '@yudiel/react-qr-scanner';
 import { supabase } from '../config/supabaseClient';
 import UpiPaymentModal from '../components/UpiPaymentModal';
 import SearchableSelect from '../components/SearchableSelect';
-import qzHelper from '../utils/qzHelper';
+import serialHelper from '../utils/serialHelper';
 
 // Category pastel palettes: [background, text, border-accent]
 const ITEM_COLORS = {
@@ -49,8 +49,8 @@ const ThermalReceipt = ({ tx, settings }) => {
   return (
     <div id="thermal-receipt" style={{ backgroundColor: 'white', padding: '5px', width: '100%', boxSizing: 'border-box', fontFamily: "'Inter', sans-serif", fontSize: '13px', color: '#000', fontWeight: 500, lineHeight: 1.3 }}>
       {/* ── Header ── */}
-      <div style={{ textAlign: 'center', borderBottom: '1.5px solid #000', paddingBottom: '0.5rem', marginBottom: '0.5rem' }}>
-        <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 900, color: '#000', letterSpacing: '0.02em' }}>{settings?.company_name || 'MONSOON MERIDIAN'}</h2>
+      <div style={{ textAlign: 'center', borderBottom: '1.5px solid #000', paddingBottom: '0.5rem', marginBottom: '0.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+        <img src="/logo.jpg" alt="Logo" style={{ width: '300px', height: '120px', objectFit: 'contain', marginBottom: '8px' }} onError={(e) => e.target.style.display = 'none'} />
         {settings?.address && <p style={{ margin: '4px 0', fontSize: '13px', color: '#000', fontWeight: 700 }}>{settings.address}</p>}
         <div style={{ margin: '0', fontSize: '12px', color: '#000', fontWeight: 700 }}>
           {settings?.phone && <div>Tel: {settings.phone}</div>}
@@ -362,26 +362,18 @@ const Sales = () => {
     if (!lastTransaction || isPrinting) return;
     setIsPrinting(true);
 
-    const printer = sysSettings?.thermal_printer_name;
-
-    // Path A: Direct Printing via QZ Tray (HTML for better layout)
-    if (printer) {
-      try {
-        await qzHelper.printHTML(printer, 'thermal-receipt');
-        setIsPrinting(false);
-        return;
-      } catch (err) {
-        console.warn('Direct QZ HTML print failed, falling back to browser print:', err);
-      }
-    }
-
-    // Path B: Universal Browser Print (Hidden Iframe)
-    // This is the fallback if no printer is selected OR QZ Tray fails.
     try {
-      await qzHelper.printViaBrowser('thermal-receipt');
+      // Primary: Web Serial (Free native printing)
+      await serialHelper.printElement('thermal-receipt', lastTransaction, sysSettings);
     } catch (err) {
-      console.error('Browser print failed:', err);
-      alert('Print failed. Please check your printer connection.');
+      console.warn('Direct Serial print failed, falling back to browser print:', err);
+      try {
+        // Fallback: Default Browser Print
+        await serialHelper.write('\x1B\x40'); // Reset printer if it was in a weird state
+        window.print(); 
+      } catch (fallbackErr) {
+        alert('Print failed. Please verify your printer is connected.');
+      }
     } finally {
       setIsPrinting(false);
     }
@@ -764,14 +756,8 @@ const Sales = () => {
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', position: 'sticky', top: '2rem' }}>
               <button onClick={handleDirectPrint} disabled={isPrinting} className="btn-primary" style={{ padding: '1.25rem 2rem', fontSize: '1.1rem', gap: '0.75rem', display: 'flex', alignItems: 'center', backgroundColor: isPrinting ? '#94a3b8' : 'var(--c-wave)' }}>
-                <Printer size={24} /> {isPrinting ? 'Printing...' : (sysSettings?.thermal_printer_name ? 'Direct Print' : 'Print Receipt')}
+                <Printer size={24} /> {isPrinting ? 'Printing...' : 'Print Receipt'}
               </button>
-              
-              {sysSettings?.thermal_printer_name && (
-                <button onClick={() => qzHelper.printViaBrowser('thermal-receipt')} className="btn-secondary" style={{ padding: '1rem', fontSize: '0.9rem', color: 'white', borderColor: 'rgba(255,255,255,0.3)' }}>
-                  Fallback: Browser Print
-                </button>
-              )}
 
               <button onClick={() => { setShowReceipt(false); setCart([]); setReceivedAmount(''); setDiscount(''); }}
                 style={{ padding: '1.25rem 2rem', fontSize: '1.1rem', border: '2px solid rgba(255,255,255,0.35)', color: 'white', borderRadius: 8, fontWeight: 700, background: 'transparent', cursor: 'pointer' }}>
