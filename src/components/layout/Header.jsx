@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Bell, Search, X, AlertTriangle, Package, ExternalLink, Menu } from 'lucide-react';
+import { Bell, Search, X, AlertTriangle, Package, ExternalLink, Menu, Printer } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../../config/supabaseClient';
+import { checkPrintServer } from '../../utils/printService';
 
 const Header = ({ onMenuClick }) => {
   const location = useLocation();
@@ -19,6 +19,37 @@ const Header = ({ onMenuClick }) => {
   const [notifications, setNotifications] = useState([]);
   const [notifLoading, setNotifLoading] = useState(false);
   const notifRef = useRef(null);
+
+  /* printer status state */
+  const [printerOnline, setPrinterOnline] = useState(false);
+  const [checkingPrinter, setCheckingPrinter] = useState(false);
+
+  const checkPrinter = useCallback(async () => {
+    setCheckingPrinter(true);
+    const status = await checkPrintServer();
+    setPrinterOnline(status.online);
+    setCheckingPrinter(false);
+  }, []);
+
+  const wakeUpPrinter = () => {
+    // Opening the local health endpoint in a small popup "wakes up" the browser's 
+    // permission to talk to the local network (127.0.0.1) from an HTTPS origin.
+    const win = window.open('http://127.0.0.1:6789/health', 'printer_fix', 'width=100,height=100,top=100,left=100');
+    if (win) {
+      setTimeout(() => {
+        win.close(); 
+        checkPrinter();
+      }, 1000);
+    } else {
+      alert("Popup blocked! Please allow popups for this site or open http://127.0.0.1:6789/health manually once.");
+    }
+  };
+
+  useEffect(() => {
+    checkPrinter();
+    const interval = setInterval(checkPrinter, 10000); // Check every 10s
+    return () => clearInterval(interval);
+  }, [checkPrinter]);
 
   const getPageTitle = () => {
     const paths = [
@@ -297,6 +328,30 @@ const Header = ({ onMenuClick }) => {
             )}
           </div>
         )}
+      </div>
+
+      {/* ── Printer Status ── */}
+      <div style={{ position: 'relative' }}>
+        <button
+          onClick={printerOnline ? checkPrinter : wakeUpPrinter}
+          title={printerOnline ? "Printer: Online" : "Printer: Offline (Click to fix)"}
+          style={{
+            display: 'flex', alignItems: 'center', gap: '6px',
+            padding: '6px 10px', borderRadius: '8px', border: '1px solid var(--c-border)',
+            background: printerOnline ? '#f0fdf4' : '#fef2f2',
+            color: printerOnline ? '#166534' : '#991b1b',
+            cursor: 'pointer', transition: 'all 0.2s',
+            fontSize: '0.75rem', fontWeight: 700
+          }}
+        >
+          <Printer size={16} />
+          <span style={{ 
+            width: 8, height: 8, borderRadius: '50%', 
+            background: printerOnline ? '#22c55e' : '#ef4444',
+            boxShadow: printerOnline ? '0 0 8px #22c55e' : 'none'
+          }} />
+          {!printerOnline && <span className="desktop-only">Connect Printer</span>}
+        </button>
       </div>
 
       {/* ── Notification Bell ── */}

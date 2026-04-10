@@ -9,7 +9,7 @@
  *   await printReceipt(transaction, systemSettings);
  */
 
-const PRINT_SERVER = 'http://localhost:6789';
+const PRINT_SERVER = 'http://127.0.0.1:6789';
 
 /**
  * Ping the local print server.
