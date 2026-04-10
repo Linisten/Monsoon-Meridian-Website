@@ -400,7 +400,7 @@ const Stock = () => {
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '1rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
                   <div>
                     <label style={{ fontSize: '0.75rem', color: 'var(--c-text-secondary)' }}>Item Cost</label>
                     <input type="number" step="0.01" value={activeItem?.cost_price || 0} onChange={e => handleActiveItemChange('cost_price', e.target.value)} style={{ padding: '0.5rem', fontSize: '0.85rem', textAlign: 'right' }} />
@@ -413,47 +413,8 @@ const Stock = () => {
                     <label style={{ fontSize: '0.75rem', color: 'var(--c-text-secondary)' }}>Selling Price</label>
                     <input type="number" step="0.01" value={activeItem?.price || 0} onChange={e => handleActiveItemChange('price', e.target.value)} style={{ padding: '0.5rem', fontSize: '0.85rem', textAlign: 'right' }} />
                   </div>
-                  <div>
-                    <label style={{ fontSize: '0.75rem', color: 'var(--c-text-secondary)' }}>Current Stock</label>
-                    <input type="number" step="0.001" value={activeItem?.stock_quantity || 0} onChange={e => handleActiveItemChange('stock_quantity', e.target.value)} style={{ padding: '0.5rem', fontSize: '0.85rem', textAlign: 'right' }} />
-                  </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
-                  <div>
-                    <label style={{ fontSize: '0.75rem', color: 'var(--c-text-secondary)' }}>Active/Inactive *</label>
-                    <select 
-                      value={activeItem?.is_active === false ? 'INACTIVE' : 'ACTIVE'} 
-                      onChange={e => handleActiveItemChange('is_active', e.target.value === 'ACTIVE')}
-                      style={{ padding: '0.5rem', fontSize: '0.85rem', width: '100%', border: '1px solid var(--c-border)', borderRadius: '4px' }}
-                    >
-                      <option value="ACTIVE">ACTIVE</option>
-                      <option value="INACTIVE">INACTIVE</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.75rem', color: 'var(--c-text-secondary)' }}>Barcode Type *</label>
-                    <select 
-                      value={activeItem?.barcode_type || 'SYSTEM GENERATED'}
-                      onChange={e => handleActiveItemChange('barcode_type', e.target.value)}
-                      style={{ padding: '0.5rem', fontSize: '0.85rem', width: '100%', border: '1px solid var(--c-border)', borderRadius: '4px' }}
-                    >
-                      <option value="SYSTEM GENERATED">SYSTEM GENERATED</option>
-                      <option value="MANUAL">MANUAL</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.75rem', color: 'var(--c-text-secondary)' }}>Type *</label>
-                    <select 
-                      value={activeItem?.item_type || 'INVENTORY'}
-                      onChange={e => handleActiveItemChange('item_type', e.target.value)}
-                      style={{ padding: '0.5rem', fontSize: '0.85rem', width: '100%', border: '1px solid var(--c-border)', borderRadius: '4px' }}
-                    >
-                      <option value="INVENTORY">INVENTORY</option>
-                      <option value="SERVICE">SERVICE</option>
-                    </select>
-                  </div>
-                </div>
 
                 {/* ─── IMAGE UPLOAD ─────────────────────────────── */}
                 <div style={{ marginTop: '0.5rem' }}>

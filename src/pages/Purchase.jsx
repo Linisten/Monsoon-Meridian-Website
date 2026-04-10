@@ -24,6 +24,13 @@ const Purchase = () => {
   const navigate = useNavigate();
   const searchInputRef = useRef(null);
 
+  const formatItemName = (name) => {
+    const max = 22; // consistent with bill layout
+    if (!name) return 'Item';
+    if (name.length <= max) return name;
+    return name.substring(0, max - 10) + "..." + name.slice(-7);
+  };
+
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'F4') {
@@ -244,7 +251,7 @@ const Purchase = () => {
                     <div key={index} style={{ padding: '0.5rem 1.0rem', display: 'grid', gridTemplateColumns: '40px 60px 2fr 60px 60px 80px 80px 80px 40px', fontSize: '0.8rem', borderBottom: '1px solid var(--c-border)' }}>
                       <div style={{color:'var(--c-text-secondary)'}}>{index + 1}</div>
                       <div style={{fontWeight:600}}>{item.code}</div>
-                      <div style={{color:'var(--c-olive-dark)'}}>{item.name}</div>
+                      <div style={{color:'var(--c-olive-dark)'}}>{formatItemName(item.name)}</div>
                       <div>{item.unit || item.pack}</div>
                       <div style={{textAlign:'right', fontWeight:600}}>{item.qty}</div>
                       <div style={{textAlign:'right'}}>{(item.mrp || 0).toFixed(2)}</div>
@@ -341,7 +348,7 @@ const Purchase = () => {
                 }}
               >
                 <div style={{fontWeight:600}}>{item.code}</div>
-                <div>{item.name}</div>
+                <div>{formatItemName(item.name)}</div>
                 <div style={{color:'var(--c-text-secondary)'}}>{item.category}</div>
                 <div>{item.unit || item.pack}</div>
                 <div>{item.mrp ? item.mrp.toFixed(2) : '0.00'}</div>

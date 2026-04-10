@@ -63,40 +63,36 @@ function buildReceipt(data, settings = {}) {
   add2(
     str('-'.repeat(W) + '\n'),
     b(0x1B, 0x45, 0x01),
-    str(padL('ITEM', 30) + padR('QTY', 8) + padR('AMT', 10) + '\n'),
+    str(padL('ITEM', 22) + padR('QTY', 5) + padR('RATE', 10) + padR('AMT', 11) + '\n'),
     b(0x1B, 0x45, 0x00),
     str('-'.repeat(W) + '\n'),
   );
 
+  const formatItemName = (name, max = 22) => {
+    if (name.length <= max) return name;
+    return name.substring(0, max - 10) + "..." + name.slice(-7);
+  };
+
   const items = data.items_json || data.items || [];
   items.forEach(it => {
-    const name = it.name || 'Item';
+    const name = formatItemName(it.name || 'Item', 22);
     const qNum = it.qty || 1;
-    const unitPart = (it.unit || it.pack || '').toLowerCase();
-    let unitLabel = '';
-    if (unitPart === 'nos' || unitPart === '' || unitPart === 'pc' || unitPart === 'pcs') {
-      unitLabel = ' nos';
-    } else {
-      unitLabel = ' ' + unitPart;
-    }
-    const qty  = String(qNum) + unitLabel;
-    const amt  = ((it.price || 0) * qNum).toFixed(2);
-    if (name.length > 30) {
-      add2(str(name + '\n'), str(' '.repeat(30) + padR(qty, 8) + padR(amt, 10) + '\n'));
-    } else {
-      add2(str(padL(name, 30) + padR(qty, 8) + padR(amt, 10) + '\n'));
-    }
+    const qty  = String(qNum);
+    const rate = (it.price || it.rate || 0).toFixed(2);
+    const amt  = ((it.price || it.rate || 0) * qNum).toFixed(2);
+    
+    add2(str(padL(name, 22) + padR(qty, 5) + padR(rate, 10) + padR(amt, 11) + '\n'));
   });
 
   add2(str('.'.repeat(W) + '\n'));
 
   const addSummaryRow = (label, amount) => {
     if (!amount || amount === '0.00' || amount === 0) return;
-    add2(str(padL(label, 30) + padR(amount, 18) + '\n'));
+    add2(str(padL(label, 37) + padR(amount, 11) + '\n'));
   };
 
   const gross = (data.subtotal || data.gross_total || data.total_amount || 0).toFixed(2);
-  add2(str(padL('Gross Total', 30) + padR('Rs.' + gross, 18) + '\n'));
+  add2(str(padL('Gross Total', 37) + padR('Rs.' + gross, 11) + '\n'));
 
   addSummaryRow('Discount', data.discount ? '-' + Number(data.discount).toFixed(2) : '0.00');
   
@@ -113,13 +109,13 @@ function buildReceipt(data, settings = {}) {
 
   add2(str('-'.repeat(W) + '\n'));
 
-  const DW  = Math.floor(W / 2);
+  const DW  = 24; // effective chars width at double-width scale (W/2)
   const tot = (data.total_amount || 0).toFixed(2);
-  const tL  = 'NET AMOUNT DUE', tV = 'Rs.' + tot;
+  const tL  = 'NET AMOUNT', tV = 'Rs.' + tot;
   const tGap = DW - tL.length - tV.length;
   add2(
-    b(0x1B, 0x45, 0x01), b(0x1D, 0x21, 0x11),
-    str(tL + (tGap > 0 ? ' '.repeat(tGap) : ' ') + tV + '\n'),
+    b(0x1B, 0x45, 0x01), b(0x1D, 0x21, 0x10), // Bold + Double Width ONLY (to ensure single line)
+    str(tL + (tGap > 0 ? ' '.repeat(tGap) : '') + tV + '\n'),
     b(0x1D, 0x21, 0x00), b(0x1B, 0x45, 0x00),
 
     lf(),
@@ -199,6 +195,7 @@ function getPrinters() {
 
 // ── Routes ───────────────────────────────────────────────────────────────────
 app.post('/print', async (req, res) => {
+  console.log(`[HTTP] → Incoming print request for ID: ${req.body?.receipt?.id}`);
   try {
     const { receipt, settings } = req.body;
     const printers = getPrinters();
@@ -218,8 +215,18 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', printers: printers.map(p => `${p.name}${p.isDefault ? ' (default)' : ''}`) });
 });
 
-app.listen(PORT, '127.0.0.1', () => {
+app.listen(PORT, '0.0.0.0', () => {
   const printers = getPrinters();
-  console.log(`\n🖨️  Monsoon Meridian Print Server → http://127.0.0.1:${PORT}`);
+  console.log(`\n🖨️  Monsoon Meridian Print Server → http://localhost:${PORT}`);
+  console.log(`   Accepting connections on all interfaces (0.0.0.0)`);
   console.log(`   Default printer: ${printers.find(p => p.isDefault)?.name || 'none'}\n`);
+});
+
+// Prevent server from crashing on unexpected errors
+process.on('uncaughtException', (err) => {
+  console.error('[CRITICAL ERROR] Uncaught Exception:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[CRITICAL ERROR] Unhandled Rejection at:', promise, 'reason:', reason);
 });

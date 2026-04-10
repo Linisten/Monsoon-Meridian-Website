@@ -9,7 +9,7 @@
  *   await printReceipt(transaction, systemSettings);
  */
 
-const PRINT_SERVER = 'http://127.0.0.1:6789';
+const PRINT_SERVER = 'http://localhost:6789';
 
 /**
  * Ping the local print server.
@@ -58,6 +58,7 @@ export async function printReceipt(tx, settings = {}, printerName = null) {
     const net = tx.total_amount ?? Math.round(beforeRound);
     const roundOff = net - beforeRound;
 
+    const s = settings || {};
     const payload = {
       receipt: {
         id:             tx.id,
@@ -73,10 +74,10 @@ export async function printReceipt(tx, settings = {}, printerName = null) {
         total_amount:   net,
       },
       settings: {
-        company_name: settings.company_name || 'MONSOON MERIDIAN',
-        address:      settings.address || '',
-        phone:        settings.phone || '',
-        gst_no:       settings.gst_no || '',
+        company_name: s.company_name || 'MONSOON MERIDIAN',
+        address:      s.address || '',
+        phone:        s.phone || '',
+        gst_no:       s.gst_no || '',
       },
       printerName: printerName || null,
     };
@@ -98,7 +99,7 @@ export async function printReceipt(tx, settings = {}, printerName = null) {
 
   } catch (err) {
     if (err.name === 'TimeoutError' || err.name === 'AbortError') {
-      return { success: false, error: 'Print server not responding. Is it running?' };
+      return { success: false, error: 'Print server timeout' };
     }
     return { success: false, error: err.message };
   }

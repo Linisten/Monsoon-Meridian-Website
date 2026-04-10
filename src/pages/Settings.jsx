@@ -2,11 +2,17 @@ import React, { useState, useEffect } from 'react';
 import { Save, Building, Phone, Mail, MapPin, Receipt, Smartphone, CheckCircle, Printer, AlertCircle } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { supabase } from '../config/supabaseClient';
-import serialHelper from '../utils/serialHelper';
 import SearchableSelect from '../components/SearchableSelect';
 
 const INSTAGRAM_HANDLE = 'monsoonmeridian';
 const INSTAGRAM_URL    = `https://www.instagram.com/${INSTAGRAM_HANDLE}/`;
+
+const formatItemName = (name) => {
+  const max = 22;
+  if (!name) return 'Item';
+  if (name.length <= max) return name;
+  return name.substring(0, max - 10) + "..." + name.slice(-7);
+};
 
 const Field = ({ label, icon: Icon, value, onChange, type = 'text' }) => (
   <div>
@@ -33,8 +39,6 @@ const Settings = () => {
     upi_id: '9846137892@rapl',
     thermal_printer_name: '',
   });
-  const [isConnected, setIsConnected] = useState(false);
-  const [connectionType, setConnectionType] = useState(null);
   const [settingsId, setSettingsId] = useState(null);
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -42,28 +46,6 @@ const Settings = () => {
   useEffect(() => {
     loadSettings();
   }, []);
-
-  const connectSerial = async () => {
-    try {
-      await serialHelper.requestPort();
-      setIsConnected(true);
-      setConnectionType('Serial');
-      alert('Serial Printer Connected Successfully!');
-    } catch (err) {
-      alert('Serial Connection Failed: ' + err.message);
-    }
-  };
-
-  const connectUsb = async () => {
-    try {
-      await serialHelper.requestUsbPort();
-      setIsConnected(true);
-      setConnectionType('USB');
-      alert('USB Printer Connected Successfully!');
-    } catch (err) {
-      alert('USB Connection Failed: ' + err.message);
-    }
-  };
 
   const loadSettings = async () => {
     const { data, error } = await supabase.from('settings').select('*').limit(1).single();
@@ -158,48 +140,7 @@ const Settings = () => {
         </div>
       </div>
 
-      {/* Hardware / Printer Settings */}
-      <div className="card" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid var(--c-border)', paddingBottom: '0.75rem' }}>
-          <h2 style={{ fontSize: '1.3rem', fontWeight: 800, margin: 0 }}>
-            Hardware & Printing
-          </h2>
-          <div style={{ padding: '4px 12px', background: 'var(--c-success)', color: 'white', borderRadius: 20, fontSize: '0.75rem', fontWeight: 800 }}>
-            FREE DRIVER ACTIVE
-          </div>
-        </div>
 
-        <div style={{ padding: '1.5rem', background: '#f8fafc', border: '2px dashed #cbd5e1', borderRadius: 12, textAlign: 'center' }}>
-          <Printer size={32} style={{ color: 'var(--c-text-secondary)', marginBottom: '0.5rem' }} />
-          <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 800 }}>Direct Hardware Connection</h3>
-          <p style={{ fontSize: '0.85rem', color: 'var(--c-text-secondary)', margin: '0.5rem 0 1rem 0' }}>
-            Connect directly to your USB/Serial printer from the browser. 
-            {isConnected ? <span style={{ color: 'var(--c-success)', fontWeight: 700 }}> (Connected via {connectionType})</span> : ' (Not Connected)'}
-          </p>
-          <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-            <button onClick={connectSerial} className="btn-primary" style={{ padding: '0.5rem 1.5rem' }}>
-              Connect via Serial (VCOM)
-            </button>
-            <button onClick={connectUsb} className="btn-primary" style={{ padding: '0.5rem 1.5rem', backgroundColor: '#8b5cf6' }}>
-              Connect via USB (Raw)
-            </button>
-          </div>
-        </div>
-
-        <button 
-          onClick={async () => {
-            try {
-              const demoTx = { total_amount: 0, items_json: [], id: 'TEST', date: new Date().toLocaleString() };
-              await serialHelper.write('\x1B\x40\x1B\x61\x01TEST PRINT\x0A\x1B\x64\x06\x1D\x56\x00');
-            } catch (e) { alert('Test failed: ' + e.message); }
-          }}
-          className="btn-secondary" style={{ width: '100%' }} disabled={!isConnected}
-        >Test Print</button>
-
-        <p style={{ fontSize: '0.75rem', color: 'var(--c-text-secondary)', marginTop: '0.5rem' }}>
-          Direct printing uses ESC/POS commands for faster, cleaner receipts without a print dialog.
-        </p>
-      </div>
 
 
       {/* Receipt Preview */}
@@ -225,11 +166,14 @@ const Settings = () => {
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px' }}><span>Payment:</span><span style={{fontWeight: 900}}>CASH</span></div>
 
           {/* Items sample */}
-          <div style={{ borderTop: '2px dashed #000', marginTop: '1rem', paddingTop: '0.5rem', display: 'grid', gridTemplateColumns: '1fr 60px 60px', fontWeight: 800, marginBottom: '0.5rem' }}>
-            <span>Item</span><span style={{ textAlign: 'center' }}>Qty</span><span style={{ textAlign: 'right' }}>Amt</span>
+          <div style={{ borderTop: '2px dashed #000', marginTop: '1rem', paddingTop: '0.5rem', display: 'grid', gridTemplateColumns: '1fr 45px 65px 75px', fontWeight: 800, marginBottom: '0.5rem', fontSize: '12px', textTransform: 'uppercase' }}>
+            <span>Item</span><span style={{ textAlign: 'right' }}>Qty</span><span style={{ textAlign: 'right' }}>Rate</span><span style={{ textAlign: 'right' }}>Amt</span>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 60px 60px', marginBottom: '4px', fontSize: '15px' }}>
-            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Sample Item</span><span style={{ textAlign: 'center' }}>2 nos</span><span style={{ textAlign: 'right' }}>200.00</span>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 45px 65px 75px', marginBottom: '4px', fontSize: '14px', fontWeight: 800 }}>
+            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{formatItemName("Organic Green Tea Leaf 500gm")}</span>
+            <span style={{ textAlign: 'right' }}>2</span>
+            <span style={{ textAlign: 'right' }}>100.00</span>
+            <span style={{ textAlign: 'right' }}>200.00</span>
           </div>
 
           {/* Totals */}
@@ -237,7 +181,7 @@ const Settings = () => {
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px', color: '#000', marginBottom: '3px' }}><span>Gross Total</span><span style={{fontWeight: 900}}>₹200.00</span></div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px', color: '#000', marginBottom: '3px' }}><span>Discount</span><span style={{fontWeight: 900}}>-₹0.00</span></div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '15px', color: '#000', marginBottom: '3px' }}><span>Tax (18%)</span><span style={{fontWeight: 900}}>+₹36.00</span></div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 900, borderTop: '3px solid #000', marginTop: '8px', paddingTop: '8px', fontSize: '1.25rem' }}><span>NET AMOUNT DUE</span><span>₹236.00</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 900, borderTop: '3px solid #000', marginTop: '8px', paddingTop: '8px', fontSize: '1.25rem' }}><span>NET AMOUNT</span><span>₹236.00</span></div>
           </div>
 
           {/* Instagram QR */}

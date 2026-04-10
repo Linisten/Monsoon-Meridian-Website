@@ -35,6 +35,13 @@ const loadScript = (src) =>
 const INSTAGRAM_HANDLE = 'monsoonmeridian';
 const INSTAGRAM_URL    = `https://www.instagram.com/${INSTAGRAM_HANDLE}/`;
 
+  const formatItemName = (name) => {
+    const max = 22; // matches print server limit for single line
+    if (name.length <= max) return name;
+    // Truncate in middle, preserve last 7 chars (for weights etc)
+    return name.substring(0, max - 10) + "..." + name.slice(-7);
+  };
+
 const ThermalReceipt = ({ tx, settings }) => {
   if (!tx) return null;
   const netAmount     = tx.total_amount || 0;
@@ -67,20 +74,18 @@ const ThermalReceipt = ({ tx, settings }) => {
       </div>
 
       {/* ── Items ── */}
-      <div style={{ borderBottom: '1.5px solid #000', paddingBottom: '2px', marginBottom: '3px', display: 'grid', gridTemplateColumns: '1fr 35px 65px', fontWeight: 800, fontSize: '11px', color: '#000', textTransform: 'uppercase' }}>
-        <span>Item</span><span style={{ textAlign: 'center' }}>Qty</span><span style={{ textAlign: 'right' }}>Amt</span>
+      <div style={{ borderBottom: '1.5px solid #000', paddingBottom: '2px', marginBottom: '3px', display: 'grid', gridTemplateColumns: '1fr 45px 65px 75px', fontWeight: 800, fontSize: '11px', color: '#000', textTransform: 'uppercase' }}>
+        <span>Item</span><span style={{ textAlign: 'right' }}>Qty</span><span style={{ textAlign: 'right' }}>Rate</span><span style={{ textAlign: 'right' }}>Amt</span>
       </div>
       {tx.items_json?.map((it, i) => {
         const rate = it.price || it.rate || 0;
         const qNum = it.qty || 1;
-        const unitPart = (it.unit || it.pack || '').toLowerCase();
-        const isNos = unitPart === 'nos' || unitPart === '' || unitPart === 'pc' || unitPart === 'pcs';
-        const unitLabel = isNos ? 'nos' : unitPart;
         
         return (
-          <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 35px 65px', margin: '2px 0', fontSize: '12px', color: '#000', fontWeight: 800 }}>
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.name}</span>
-            <span style={{ textAlign: 'center' }}>{qNum} {unitLabel}</span>
+          <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 45px 65px 75px', margin: '2px 0', fontSize: '12px', color: '#000', fontWeight: 800 }}>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{formatItemName(it.name)}</span>
+            <span style={{ textAlign: 'right' }}>{qNum}</span>
+            <span style={{ textAlign: 'right' }}>{rate.toFixed(2)}</span>
             <span style={{ textAlign: 'right' }}>{(rate * qNum).toFixed(2)}</span>
           </div>
         );
@@ -112,7 +117,7 @@ const ThermalReceipt = ({ tx, settings }) => {
         )}
 
         <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 900, fontSize: '1.25rem', borderTop: '2px solid #000', marginTop: '6px', paddingTop: '6px', color: '#000' }}>
-          <span>NET AMOUNT DUE</span><span>₹{netAmount.toFixed(2)}</span>
+          <span>NET AMOUNT</span><span>₹{netAmount.toFixed(2)}</span>
         </div>
       </div>
 
@@ -188,8 +193,9 @@ const Sales = () => {
   const [customers,        setCustomers]        = useState([]);
   const [selectedCustomer, setSelectedCustomer] = useState('Walk-in Customer');
   const [categories,       setCategories]       = useState(['ALL']);
+  const [stockWarning,     setStockWarning]     = useState(null);
 
-  const [sysSettings,      setSysSettings]      = useState(null);
+  const [sysSettings,      setSysSettings]      = useState({});
   const [isProcessing,     setIsProcessing]     = useState(false);
   const [isPrinting,       setIsPrinting]       = useState(false);
 
@@ -216,18 +222,53 @@ const Sales = () => {
   };
 
   const addToCart = (item) => {
+    const inCart = cart.find(c => c.id === item.id);
+    const currentQty = inCart ? inCart.qty : 0;
+
+    // Safety: Treat any negative stock in DB as 0 for this check
+    const availableStock = Math.max(0, item.stock_quantity);
+
+    if (currentQty + 1 > availableStock) {
+      setStockWarning(item.name);
+      setTimeout(() => setStockWarning(null), 2000);
+      return;
+    }
+
     setCart(prev => {
       const hit = prev.find(c => c.id === item.id);
       return hit ? prev.map(c => c.id === item.id ? { ...c, qty: c.qty + 1 } : c) : [...prev, { ...item, qty: 1 }];
     });
   };
-  const updateQty      = (id, d)   => setCart(prev => prev.map(c => c.id === id ? ({ ...c, qty: Math.max(0, c.qty + d), manual_amount: undefined }) : c).filter(c => c.qty > 0));
+  const updateQty = (id, d) => {
+    if (d > 0) {
+      const inCart = cart.find(c => c.id === id);
+      const original = items.find(it => it.id === id);
+      const availableStock = Math.max(0, original?.stock_quantity || 0);
+      
+      if (inCart && original && inCart.qty + d > availableStock) {
+        setStockWarning(original.name);
+        setTimeout(() => setStockWarning(null), 2000);
+        return;
+      }
+    }
+    setCart(prev => prev.map(c => c.id === id ? ({ ...c, qty: Math.max(0, c.qty + d), manual_amount: undefined }) : c).filter(c => c.qty > 0));
+  };
   const removeItem     = (id)      => setCart(prev => prev.filter(c => c.id !== id));
   const updateAmount   = (id, val) => setCart(prev => prev.map(c => {
     if (c.id !== id) return c;
     const rate = c.price || c.rate || 0;
     const newAmt = parseFloat(val) || 0;
     const newQty = rate > 0 ? parseFloat((newAmt / rate).toFixed(4)) : c.qty;
+
+    const original = items.find(it => it.id === id);
+    const availableStock = Math.max(0, original?.stock_quantity || 0);
+    
+    if (original && newQty > availableStock) {
+      setStockWarning(original.name);
+      setTimeout(() => setStockWarning(null), 2000);
+      return c;
+    }
+
     return { ...c, qty: newQty, manual_amount: val };
   }));
 
@@ -485,7 +526,7 @@ const Sales = () => {
           <div className="cart-table-header" style={{ backgroundColor: '#f1f5f9', padding: '0.75rem 1rem', display: 'flex', fontWeight: 700, fontSize: '0.85rem', borderBottom: '1px solid var(--c-border)', alignItems: 'center' }}>
             <div style={{ width: 36 }}>#</div>
             <div style={{ width: 44 }}>Pic</div>
-            <div style={{ width: 76 }}>Code</div>
+
             <div style={{ flex: 1 }}>Item</div>
             <div style={{ width: 120, textAlign: 'center' }}>Qty</div>
             <div style={{ width: 90, textAlign: 'right' }}>Rate</div>
@@ -505,8 +546,8 @@ const Sales = () => {
                   <div style={{ width: 44 }}>
                     {it.image_url ? <img src={it.image_url} alt="" style={{ width: 32, height: 32, borderRadius: 4, objectFit: 'cover' }} /> : <div style={{ width: 32, height: 32, borderRadius: 4, background: '#e2e8f0' }} />}
                   </div>
-                  <div style={{ width: 76, fontWeight: 600 }}>{it.code}</div>
-                  <div style={{ flex: 1, fontWeight: 600 }}>{it.name}</div>
+
+                  <div style={{ flex: 1, fontWeight: 600 }}>{formatItemName(it.name)}</div>
                   <div style={{ width: 120, display: 'flex', justifyContent: 'center', gap: 8, alignItems: 'center' }}>
                     <button onClick={() => updateQty(it.id, -1)} style={{ width: 28, height: 28, borderRadius: 6, background: '#f1f5f9', border: '1px solid var(--c-border)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Minus size={14} /></button>
                     <span style={{ width: 28, textAlign: 'center', fontWeight: 700 }}>{it.qty}</span>
@@ -563,7 +604,7 @@ const Sales = () => {
           </div>
           <div style={{ width: 2, background: 'var(--c-border)' }} />
           <div style={{ flex: 1, textAlign: 'right' }}>
-            <div style={{ fontSize: '1rem', color: 'var(--c-text-secondary)', fontWeight: 700 }}>NET AMOUNT DUE</div>
+            <div style={{ fontSize: '1rem', color: 'var(--c-text-secondary)', fontWeight: 700 }}>NET AMOUNT</div>
             <div style={{ fontSize: '3rem', fontWeight: 900, lineHeight: 1, color: 'var(--c-text-primary)' }}>₹{netAmount.toFixed(2)}</div>
           </div>
         </div>
@@ -641,17 +682,20 @@ const Sales = () => {
               const price  = it.price || it.rate || 0;
               const stock  = it.stock_quantity ?? null;
               const isLow  = stock !== null && stock <= (it.low_stock_alert || 5);
+              const isOutOfStock = stock !== null && stock <= 0;
+
               return (
                 <div key={it.id} onClick={() => addToCart(it)}
                   style={{
                     display: 'flex',
                     flexDirection: 'column',
-                    cursor: 'pointer',
+                    cursor: isOutOfStock ? 'not-allowed' : 'pointer',
                     position: 'relative',
                     transition: 'transform 0.15s ease',
+                    opacity: isOutOfStock ? 0.8 : 1
                   }}
-                  onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px)'; }}
-                  onMouseLeave={e => { e.currentTarget.style.transform = 'none'; }}
+                  onMouseEnter={e => { if (!isOutOfStock) e.currentTarget.style.transform = 'translateY(-3px)'; }}
+                  onMouseLeave={e => { if (!isOutOfStock) e.currentTarget.style.transform = 'none'; }}
                 >
                   {/* Top Image Box */}
                   <div style={{
@@ -660,6 +704,7 @@ const Sales = () => {
                     height: '145px',
                     position: 'relative',
                     marginBottom: '0.75rem',
+                    filter: isOutOfStock ? 'grayscale(1)' : 'none'
                   }}>
                     {/* Image layer (with overflow hidden to match border radius) */}
                     <div style={{ position: 'absolute', inset: 0, borderRadius: '26px', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -670,31 +715,60 @@ const Sales = () => {
                       )}
                     </div>
 
+                    {/* Out of Stock Overlay */}
+                    {isOutOfStock && (
+                      <div style={{
+                        position: 'absolute',
+                        inset: 0,
+                        backgroundColor: 'rgba(0,0,0,0.4)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 4,
+                        borderRadius: '26px'
+                      }}>
+                        <div style={{
+                          backgroundColor: 'rgba(255,255,255,0.9)',
+                          color: '#000',
+                          padding: '4px 10px',
+                          borderRadius: '4px',
+                          fontWeight: 900,
+                          fontSize: '0.75rem',
+                          textAlign: 'center',
+                          boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                        }}>
+                          STOCK NOT AVAILABLE
+                        </div>
+                      </div>
+                    )}
+
                     {/* Plus button at top left creating the cutout illusion */}
-                    <div style={{
-                      position: 'absolute',
-                      top: -4,
-                      left: -4,
-                      width: 26,
-                      height: 26,
-                      borderRadius: '50%',
-                      backgroundColor: pastel.border,
-                      boxShadow: '0 0 0 6px #FDFCF7', // Exact match to container bg masks the corner
-                      color: 'white',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontWeight: 600,
-                      fontSize: '1.2rem',
-                      lineHeight: 1,
-                      zIndex: 2,
-                    }}>+</div>
+                    {!isOutOfStock && (
+                      <div style={{
+                        position: 'absolute',
+                        top: -4,
+                        left: -4,
+                        width: 26,
+                        height: 26,
+                        borderRadius: '50%',
+                        backgroundColor: pastel.border,
+                        boxShadow: '0 0 0 6px #FDFCF7', // Exact match to container bg masks the corner
+                        color: 'white',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontWeight: 600,
+                        fontSize: '1.2rem',
+                        lineHeight: 1,
+                        zIndex: 2,
+                      }}>+</div>
+                    )}
                   </div>
 
                   {/* Bottom Info Area */}
                   <div style={{ padding: '0 0.2rem', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
                     <span style={{ fontSize: '0.95rem', fontWeight: 500, color: '#18181b', lineHeight: 1.2, textAlign: 'left', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                      {it.name}
+                      {formatItemName(it.name)}
                     </span>
                     
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
@@ -711,6 +785,19 @@ const Sales = () => {
             })}
         </div>
       </div>
+
+      {/* ─── OVERLAY: Stock Warning ───────────────────── */}
+      {stockWarning && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="card" style={{ padding: '3rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1.5rem', background: 'white', border: '4px solid var(--c-danger)', borderRadius: 24, textAlign: 'center' }}>
+            <div style={{ width: 100, height: 100, borderRadius: '50%', background: 'var(--c-danger)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <XCircle size={60} />
+            </div>
+            <h2 style={{ fontSize: '2.5rem', fontWeight: 900, color: 'var(--c-danger)', margin: 0 }}>OUT OF STOCK!</h2>
+            <p style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0 }}>{stockWarning} is currently unavailable.</p>
+          </div>
+        </div>
+      )}
 
       {/* ─── OVERLAY: Status ──────────────────────────── */}
       {paymentOverlay === 'success' && (

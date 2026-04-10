@@ -188,7 +188,7 @@ security definer
 as $$
 begin
   update public.items
-  set stock_quantity = items.stock_quantity + quantity_change
+  set stock_quantity = greatest(0, items.stock_quantity + quantity_change)
   where id = item_id;
 end;
 $$;

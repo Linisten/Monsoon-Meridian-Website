@@ -13,6 +13,13 @@ const Reports = () => {
   const [taxRate,  setTaxRate]  = useState(5);
   const [activeRecord, setActiveRecord] = useState(null);
 
+  const formatItemName = (name) => {
+    const max = 22; // consistent with bill layout
+    if (!name) return 'Unknown Item';
+    if (name.length <= max) return name;
+    return name.substring(0, max - 10) + "..." + name.slice(-7);
+  };
+
   useEffect(() => { fetchAll(); }, []);
 
   const fetchAll = async () => {
@@ -467,8 +474,8 @@ const Reports = () => {
                       const qty  = it.qty || 0;
                       return (
                         <tr key={idx} style={{ borderBottom: '1px solid var(--c-border)' }}>
-                          <td style={{ padding: '0.6rem' }}>
-                            {name} 
+                           <td style={{ padding: '0.6rem' }}>
+                            {formatItemName(name)} 
                             {(it.unit || it.pack) ? <span style={{color: '#94a3b8', fontSize: '0.8rem', marginLeft: 6}}>({it.unit || it.pack})</span> : ''}
                             {!isSale && it.mrp ? <span style={{color: '#94a3b8', fontSize: '0.8rem', marginLeft: 6}}>MRP: ₹{it.mrp}</span> : ''}
                           </td>
