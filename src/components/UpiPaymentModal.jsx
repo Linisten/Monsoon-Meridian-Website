@@ -9,10 +9,10 @@ const AppBadge = ({ name, color, icon }) => (
   <div title={`Pay via ${name}`} style={{
     display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.4rem', cursor: 'pointer',
   }}>
-    <div style={{ width: 48, height: 48, borderRadius: 14, backgroundColor: color, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}>
-      <span style={{ color: 'white', fontWeight: 900, fontSize: '1rem' }}>{icon}</span>
+    <div style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: color, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.15)' }}>
+      <span style={{ color: 'white', fontWeight: 900, fontSize: '0.9rem' }}>{icon}</span>
     </div>
-    <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>{name}</span>
+    <span style={{ fontSize: '0.6rem', color: '#64748b', fontWeight: 600 }}>{name}</span>
   </div>
 );
 
@@ -79,12 +79,12 @@ const UpiPaymentModal = ({
       zIndex: 9999, padding: '1.5rem',
     }}>
       <div style={{
-        width: '100%', maxWidth: 520,
+        width: '100%', maxWidth: 440,
         background: 'white', borderRadius: 24,
         overflow: 'hidden', boxShadow: '0 32px 64px rgba(0,0,0,0.4)',
       }}>
         {/* — Top bar — */}
-        <div style={{ background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)', padding: '1.5rem 2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)', padding: '1rem 1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
             <Smartphone size={24} color="#a5f3fc" />
             <div>
@@ -98,29 +98,29 @@ const UpiPaymentModal = ({
         </div>
 
         {/* — Amount Hero — */}
-        <div style={{ background: '#f8fafc', padding: '1.25rem 2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0' }}>
+        <div style={{ background: '#f8fafc', padding: '0.75rem 1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0' }}>
           <div>
-            <div style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Amount to Collect</div>
-            <div style={{ fontSize: '2.8rem', fontWeight: 900, color: '#0f172a', lineHeight: 1.1 }}>₹{amount.toFixed(2)}</div>
+            <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Amount to Collect</div>
+            <div style={{ fontSize: '2rem', fontWeight: 900, color: '#0f172a', lineHeight: 1.1 }}>₹{amount.toFixed(2)}</div>
             <div style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '0.2rem' }}>Payee: <b style={{ color: '#334155' }}>{payeeName}</b></div>
           </div>
           {/* Countdown Timer */}
           <div style={{ textAlign: 'center' }}>
-            <div style={{ position: 'relative', width: 80, height: 80 }}>
-              <svg width="80" height="80" style={{ transform: 'rotate(-90deg)' }}>
-                <circle cx="40" cy="40" r="34" fill="none" stroke="#e2e8f0" strokeWidth="6" />
-                <circle cx="40" cy="40" r="34" fill="none" stroke={timerColor} strokeWidth="6"
-                  strokeDasharray={`${2 * Math.PI * 34}`}
-                  strokeDashoffset={`${2 * Math.PI * 34 * (1 - progress / 100)}`}
+            <div style={{ position: 'relative', width: 60, height: 60 }}>
+              <svg width="60" height="60" style={{ transform: 'rotate(-90deg)' }}>
+                <circle cx="30" cy="30" r="26" fill="none" stroke="#e2e8f0" strokeWidth="5" />
+                <circle cx="30" cy="30" r="26" fill="none" stroke={timerColor} strokeWidth="5"
+                  strokeDasharray={`${2 * Math.PI * 26}`}
+                  strokeDashoffset={`${2 * Math.PI * 26 * (1 - progress / 100)}`}
                   strokeLinecap="round"
                   style={{ transition: 'stroke-dashoffset 1s linear, stroke 0.5s' }}
                 />
               </svg>
               <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '2px', color: timerColor }}>
-                  <Clock size={12} />
+                  <Clock size={10} />
                 </div>
-                <div style={{ fontSize: '1rem', fontWeight: 900, color: timerColor, lineHeight: 1 }}>{mins}:{secs}</div>
+                <div style={{ fontSize: '0.9rem', fontWeight: 900, color: timerColor, lineHeight: 1 }}>{mins}:{secs}</div>
               </div>
             </div>
             <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '0.3rem', fontWeight: 700 }}>TIME LEFT</div>
@@ -139,18 +139,18 @@ const UpiPaymentModal = ({
           </div>
         ) : (
           /* — Active QR State — */
-          <div style={{ padding: '1.75rem 2rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1.5rem' }}>
+          <div style={{ padding: '1rem 1.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem' }}>
             
             {/* QR Code */}
             <div style={{
-              padding: '1.25rem', background: 'white', borderRadius: 16,
+              padding: '1rem', background: 'white', borderRadius: 16,
               border: '3px solid #e2e8f0',
               boxShadow: pulse ? '0 0 0 4px rgba(59,130,246,0.15)' : 'none',
               transition: 'box-shadow 0.5s',
             }}>
               <QRCodeSVG
                 value={upiString}
-                size={220}
+                size={180}
                 level="M"
                 includeMargin={true}
               />
@@ -158,46 +158,46 @@ const UpiPaymentModal = ({
 
             {/* UPI ID label */}
             <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: '0.78rem', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' }}>UPI ID</div>
-              <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#1e293b', fontFamily: 'monospace', background: '#f1f5f9', padding: '0.4rem 1rem', borderRadius: 8, marginTop: '0.25rem' }}>
+              <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' }}>UPI ID</div>
+              <div style={{ fontSize: '1rem', fontWeight: 800, color: '#1e293b', fontFamily: 'monospace', background: '#f1f5f9', padding: '0.3rem 0.75rem', borderRadius: 8, marginTop: '0.2rem' }}>
                 {upiId}
               </div>
             </div>
 
             {/* App Badges */}
-            <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
               <AppBadge name="GPay"    color="#4285f4" icon="G"  />
               <AppBadge name="PhonePe" color="#5f259f" icon="P"  />
               <AppBadge name="Paytm"   color="#002970" icon="P"  />
               <AppBadge name="BHIM"    color="#00a355" icon="B"  />
-              <div style={{ height: 40, width: 1, background: '#e2e8f0' }} />
+              <div style={{ height: 32, width: 1, background: '#e2e8f0' }} />
               <div style={{ fontSize: '0.8rem', color: '#94a3b8', maxWidth: 120, textAlign: 'center', lineHeight: 1.4 }}>
                 Scan with <b>any UPI app</b>
               </div>
             </div>
 
             {/* Instructions */}
-            <div style={{ width: '100%', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '0.9rem 1.2rem', display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
-              <span style={{ fontSize: '1.2rem' }}>📱</span>
-              <p style={{ margin: 0, fontSize: '0.88rem', color: '#92400e', lineHeight: 1.6 }}>
+            <div style={{ width: '100%', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '0.6rem 1rem', display: 'flex', gap: '0.6rem', alignItems: 'flex-start' }}>
+              <span style={{ fontSize: '1rem' }}>📱</span>
+              <p style={{ margin: 0, fontSize: '0.8rem', color: '#92400e', lineHeight: 1.5 }}>
                 Customer scans the QR → selects amount <b>₹{amount.toFixed(2)}</b> → pays. Once you see the payment notification on your phone, tap <b>"Payment Received"</b>.
               </p>
             </div>
 
             {/* Action Buttons */}
-            <div style={{ display: 'flex', gap: '1rem', width: '100%' }}>
-              <button onClick={onCancel} style={{ flex: 1, padding: '1rem', border: '2px solid #e2e8f0', borderRadius: 12, background: 'white', fontWeight: 700, fontSize: '1rem', cursor: 'pointer', color: '#64748b' }}>
+            <div style={{ display: 'flex', gap: '0.75rem', width: '100%' }}>
+              <button onClick={onCancel} style={{ flex: 1, padding: '0.75rem', border: '2px solid #e2e8f0', borderRadius: 12, background: 'white', fontWeight: 700, fontSize: '0.95rem', cursor: 'pointer', color: '#64748b' }}>
                 Cancel
               </button>
               <button onClick={onConfirm} style={{
-                flex: 2, padding: '1rem',
+                flex: 2, padding: '0.75rem',
                 background: 'linear-gradient(135deg, #22c55e, #16a34a)',
                 border: 'none', borderRadius: 12, color: 'white',
-                fontWeight: 800, fontSize: '1.1rem', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.6rem',
+                fontWeight: 800, fontSize: '1rem', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
                 boxShadow: '0 4px 12px rgba(34,197,94,0.35)',
               }}>
-                <CheckCircle size={22} /> Payment Received ✓
+                <CheckCircle size={20} /> Payment Received ✓
               </button>
             </div>
           </div>
