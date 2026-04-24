@@ -2,9 +2,14 @@ import React, { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Header from './Header';
+import { initKeyboardManager } from '../../utils/keyboardManager';
 
 const Layout = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  React.useEffect(() => {
+    return initKeyboardManager();
+  }, []);
 
   return (
     <div style={{ display: 'flex', width: '100%', minHeight: '100vh', backgroundColor: 'var(--c-bg)' }}>

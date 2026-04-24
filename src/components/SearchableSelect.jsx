@@ -70,6 +70,20 @@ const SearchableSelect = ({ options, value, onChange, placeholder = "Search or s
              setDisplayAll(true);
              e.target.select();
           }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              if (filteredOptions.length > 0) {
+                const opt = filteredOptions[0];
+                setSearch(opt);
+                onChange(opt);
+                setIsOpen(false);
+              } else {
+                setIsOpen(false);
+              }
+            } else if (e.key === 'Escape') {
+              setIsOpen(false);
+            }
+          }}
           placeholder={placeholder}
           style={{ width: '100%', padding: '0.5rem 2.2rem 0.5rem 0.5rem', fontSize: '0.85rem', border: '1px solid var(--c-border)', borderRadius: '4px', backgroundColor: 'var(--c-bg-card)' }}
         />

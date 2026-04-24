@@ -12,12 +12,28 @@ if (!globalThis.crypto || !globalThis.crypto.getRandomValues) {
 }
 
 export default defineConfig({
+  base: './',
   server: {
     open: false,
   },
   build: {
-    minify: false,
-    cssMinify: false,
+    assetsInlineLimit: 10000, // Inline assets up to 10kb to reduce FS overhead
+    target: 'esnext',
+    minify: true,
+    cssMinify: true,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('xlsx')) return 'vendor-xlsx';
+            if (id.includes('recharts')) return 'vendor-recharts';
+            if (id.includes('lucide-react')) return 'vendor-icons';
+            if (id.includes('@supabase')) return 'vendor-supabase';
+            return 'vendor';
+          }
+        }
+      }
+    }
   },
   plugins: [
     react(),

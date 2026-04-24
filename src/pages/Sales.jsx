@@ -1,11 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Plus, Minus, X, CreditCard, Banknote, Smartphone, ScanLine, CheckCircle, Printer, XCircle, Search, Camera } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Scanner } from '@yudiel/react-qr-scanner';
 import { supabase } from '../config/supabaseClient';
+import { setScannerHandler, clearScannerHandler } from '../utils/keyboardManager';
 import UpiPaymentModal from '../components/UpiPaymentModal';
 import SearchableSelect from '../components/SearchableSelect';
 import { printReceipt } from '../utils/printService';
+import logoUrl from '../assets/logo.jpg';
 
 // Category pastel palettes: [background, text, border-accent]
 const ITEM_COLORS = {
@@ -57,7 +59,7 @@ const ThermalReceipt = ({ tx, settings }) => {
     <div id="thermal-receipt" style={{ backgroundColor: 'white', padding: '5px', width: '100%', boxSizing: 'border-box', fontFamily: "'Inter', sans-serif", fontSize: '13px', color: '#000', fontWeight: 500, lineHeight: 1.3 }}>
       {/* ── Header ── */}
       <div style={{ textAlign: 'center', borderBottom: '1.5px solid #000', paddingBottom: '0.5rem', marginBottom: '0.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-        <img src="/logo.jpg" alt="Logo" style={{ width: '300px', height: '120px', objectFit: 'contain', marginBottom: '8px' }} onError={(e) => e.target.style.display = 'none'} />
+        <img src={logoUrl} alt="Logo" style={{ width: '300px', height: '120px', objectFit: 'contain', marginBottom: '8px' }} onError={(e) => e.target.style.display = 'none'} />
         {settings?.address && <p style={{ margin: '4px 0', fontSize: '13px', color: '#000', fontWeight: 700 }}>{settings.address}</p>}
         <div style={{ margin: '0', fontSize: '12px', color: '#000', fontWeight: 700 }}>
           {settings?.phone && <div>Tel: {settings.phone}</div>}
@@ -198,6 +200,7 @@ const Sales = () => {
   const [sysSettings,      setSysSettings]      = useState({});
   const [isProcessing,     setIsProcessing]     = useState(false);
   const [isPrinting,       setIsPrinting]       = useState(false);
+  const barcodeInputRef = useRef(null);
 
   useEffect(() => { fetchItems(); fetchSettings(); fetchCustomers(); fetchCategories(); }, []);
 
@@ -221,7 +224,7 @@ const Sales = () => {
     if (!error && data) setItems(data);
   };
 
-  const addToCart = (item) => {
+  const addToCart = useCallback((item) => {
     const inCart = cart.find(c => c.id === item.id);
     const currentQty = inCart ? inCart.qty : 0;
 
@@ -236,10 +239,12 @@ const Sales = () => {
 
     setCart(prev => {
       const hit = prev.find(c => c.id === item.id);
-      return hit ? prev.map(c => c.id === item.id ? { ...c, qty: c.qty + 1 } : c) : [...prev, { ...item, qty: 1 }];
+      return hit 
+        ? prev.map(c => c.id === item.id ? { ...c, qty: c.qty + 1 } : c) 
+        : [...prev, { ...item, qty: 1 }];
     });
-  };
-  const updateQty = (id, d) => {
+  }, [cart, items]); // Re-bind when cart or items change to ensure fresh validation context
+  const updateQty = useCallback((id, d) => {
     if (d > 0) {
       const inCart = cart.find(c => c.id === id);
       const original = items.find(it => it.id === id);
@@ -252,13 +257,15 @@ const Sales = () => {
       }
     }
     setCart(prev => prev.map(c => c.id === id ? ({ ...c, qty: Math.max(0, c.qty + d), manual_amount: undefined }) : c).filter(c => c.qty > 0));
-  };
+  }, [cart, items]);
   const removeItem     = (id)      => setCart(prev => prev.filter(c => c.id !== id));
-  const updateAmount   = (id, val) => setCart(prev => prev.map(c => {
-    if (c.id !== id) return c;
-    const rate = c.price || c.rate || 0;
+  const updateAmount = useCallback((id, val) => {
+    const inCart = cart.find(c => c.id === id);
+    if (!inCart) return;
+
+    const rate = inCart.price || inCart.rate || 0;
     const newAmt = parseFloat(val) || 0;
-    const newQty = rate > 0 ? parseFloat((newAmt / rate).toFixed(4)) : c.qty;
+    const newQty = rate > 0 ? parseFloat((newAmt / rate).toFixed(4)) : inCart.qty;
 
     const original = items.find(it => it.id === id);
     const availableStock = Math.max(0, original?.stock_quantity || 0);
@@ -266,11 +273,11 @@ const Sales = () => {
     if (original && newQty > availableStock) {
       setStockWarning(original.name);
       setTimeout(() => setStockWarning(null), 2000);
-      return c;
+      return;
     }
 
-    return { ...c, qty: newQty, manual_amount: val };
-  }));
+    setCart(prev => prev.map(c => c.id === id ? { ...c, qty: newQty, manual_amount: val } : c));
+  }, [cart, items]);
 
   const totalAmount    = cart.reduce((s, c) => s + (c.price || c.rate || 0) * c.qty, 0);
   const discountAmount = parseFloat(discount) || 0;
@@ -322,23 +329,27 @@ const Sales = () => {
     setShowReceipt(true);
   };
 
-  const processBarcode = (code) => {
+  const processBarcode = useCallback((code) => {
     if (!code) return;
-    const item = items.find(it => it.code.toLowerCase() === code.toLowerCase());
+    const item = items.find(it => (it.code || '').toLowerCase() === code.toLowerCase());
     if (item) {
       addToCart(item);
       setBarcodeInput('');
+      // Maintain focus on search bar if it was focused
+      setTimeout(() => barcodeInputRef.current?.focus(), 0);
       return true;
     } else {
       alert('Product Not Found: ' + code);
       setBarcodeInput('');
+      setTimeout(() => barcodeInputRef.current?.focus(), 0);
       return false;
     }
-  };
+  }, [items, addToCart]);
 
   const handleBarcodeScan = (e) => {
     if (e.key === 'Enter') {
-      processBarcode(barcodeInput.trim());
+      e.preventDefault();
+      processBarcode(e.target.value.trim()); // Use direct value
     }
   };
 
@@ -352,32 +363,16 @@ const Sales = () => {
     }
   };
 
+  const scannerBuffer = useRef('');
+  const scannerTimeout = useRef(null);
+  const scannerLogicRef = useRef(null);
+
   useEffect(() => {
-    let buffer = '';
-    let timeout;
-    const handleGlobalScan = (e) => {
-      // Ignore if user is actively typing in another text input/textarea
-      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+    scannerLogicRef.current = processBarcode;
+    setScannerHandler(processBarcode);
+    return () => clearScannerHandler();
+  }, [processBarcode]);
 
-      if (e.key === 'Enter') {
-        if (buffer) {
-          processBarcode(buffer);
-          buffer = '';
-        }
-      } else if (e.key.length === 1) { // normal character
-        buffer += e.key;
-        clearTimeout(timeout);
-        // Scanners type fast; clear buffer if inactive for 100ms
-        timeout = setTimeout(() => { buffer = ''; }, 100);
-      }
-    };
-
-    window.addEventListener('keydown', handleGlobalScan);
-    return () => {
-      window.removeEventListener('keydown', handleGlobalScan);
-      clearTimeout(timeout);
-    };
-  }, [items]); // Re-bind when items load
 
   // ── CASH ─────────────────────────────────────────────────────────────────
   const handleCash = () => {
@@ -506,6 +501,7 @@ const Sales = () => {
               <div style={{ position: 'relative', flex: 1 }}>
                 <ScanLine size={16} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--c-text-secondary)' }} />
                 <input 
+                  ref={barcodeInputRef}
                   type="text" 
                   placeholder="Scan barcode..." 
                   value={barcodeInput}

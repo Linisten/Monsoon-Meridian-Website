@@ -2,6 +2,7 @@ import React from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { LayoutDashboard, ShoppingCart, ShoppingBag, ClipboardList, TrendingUp, Settings, Users, FileText, LogOut, Megaphone, Barcode } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import logoUrl from '../../assets/logo.jpg';
 
 const Sidebar = ({ isOpen, onClose }) => {
   const location = useLocation();
@@ -70,7 +71,7 @@ const Sidebar = ({ isOpen, onClose }) => {
       {/* Brand Section with Logo */}
       <div style={{ padding: '2rem 1.5rem', display: 'flex', justifyContent: 'center' }}>
         <img 
-          src="/logo.jpg" 
+          src={logoUrl} 
           alt="Monsoon Meridian Logo" 
           style={{ width: '100%', maxWidth: '200px', height: 'auto', objectFit: 'contain' }} 
         />

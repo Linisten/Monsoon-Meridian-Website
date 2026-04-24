@@ -94,23 +94,45 @@ const Header = ({ onMenuClick }) => {
   /* ── Notifications: low-stock items ── */
   const fetchNotifications = useCallback(async () => {
     setNotifLoading(true);
+    const now = new Date();
+    const tenDaysFromNow = new Date();
+    tenDaysFromNow.setDate(now.getDate() + 10);
+    const tenDaysStr = tenDaysFromNow.toISOString().split('T')[0];
+
     const { data } = await supabase
       .from('items')
-      .select('id, name, code, stock_quantity, low_stock_alert')
-      .order('stock_quantity', { ascending: true })
-      .limit(20);
+      .select('id, name, code, stock_quantity, low_stock_alert, expiry_date')
+      .or(`stock_quantity.lte.low_stock_alert,expiry_date.lte.${tenDaysStr}`)
+      .limit(30);
 
-    const lowStock = (data || []).filter(
-      item => (item.stock_quantity || 0) <= (item.low_stock_alert || 5)
-    );
+    const formattedNotifs = (data || []).map(item => {
+      const isLowStock = (item.stock_quantity || 0) <= (item.low_stock_alert || 5);
+      const isExpiring = item.expiry_date && new Date(item.expiry_date) <= tenDaysFromNow;
 
-    setNotifications(lowStock.map(item => ({
-      id: item.id,
-      title: item.name,
-      sub: `Stock: ${(item.stock_quantity || 0).toFixed(2)} (Alert at ${item.low_stock_alert || 5})`,
-      code: item.code,
-      type: 'low_stock',
-    })));
+      if (isExpiring) {
+        return {
+          id: `${item.id}-exp`,
+          title: item.name,
+          sub: `Expiring on: ${item.expiry_date}`,
+          code: item.code,
+          type: 'expiry',
+          urgency: 'high'
+        };
+      }
+      if (isLowStock) {
+        return {
+          id: `${item.id}-qty`,
+          title: item.name,
+          sub: `Quantity Low: ${(item.stock_quantity || 0).toFixed(2)}`,
+          code: item.code,
+          type: 'low_stock',
+          urgency: 'medium'
+        };
+      }
+      return null;
+    }).filter(Boolean);
+
+    setNotifications(formattedNotifs);
     setNotifLoading(false);
   }, []);
 
@@ -369,13 +391,13 @@ const Header = ({ onMenuClick }) => {
               )}
               {!notifLoading && notifications.length === 0 && (
                 <div style={{ padding: '1.5rem', textAlign: 'center', fontSize: '0.82rem', color: 'var(--c-text-secondary)' }}>
-                  ✅ All stock levels are fine
+                  ✅ Everything looks good!
                 </div>
               )}
               {!notifLoading && notifications.length > 0 && (
                 <>
-                  <div style={{ padding: '0.5rem 1rem', fontSize: '0.7rem', fontWeight: 700, color: 'var(--c-danger)', textTransform: 'uppercase', letterSpacing: '0.07em', background: '#fff5f5' }}>
-                    ⚠ Low Stock Alerts ({notifications.length})
+                  <div style={{ padding: '0.5rem 1rem', fontSize: '0.7rem', fontWeight: 700, color: 'var(--c-wave)', textTransform: 'uppercase', letterSpacing: '0.07em', background: 'var(--c-bg)' }}>
+                    ⚠ Critical Alerts ({notifications.length})
                   </div>
                   {notifications.map((n, i) => (
                     <button
@@ -392,15 +414,16 @@ const Header = ({ onMenuClick }) => {
                     >
                       <div style={{
                         width: '32px', height: '32px', borderRadius: '8px',
-                        background: '#fee2e2', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
+                        background: n.type === 'expiry' ? '#fff1f2' : '#f0fdf4', 
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
                       }}>
-                        <AlertTriangle size={16} color="var(--c-danger)" />
+                        {n.type === 'expiry' ? <AlertTriangle size={16} color="var(--c-danger)" /> : <Package size={16} color="var(--c-olive)" />}
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--c-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {n.title}
                         </div>
-                        <div style={{ fontSize: '0.72rem', color: 'var(--c-danger)', marginTop: '2px' }}>{n.sub}</div>
+                        <div style={{ fontSize: '0.72rem', color: n.type === 'expiry' ? 'var(--c-danger)' : 'var(--c-wave)', marginTop: '2px', fontWeight: 600 }}>{n.sub}</div>
                         {n.code && <div style={{ fontSize: '0.68rem', color: 'var(--c-text-secondary)' }}>Code: {n.code}</div>}
                       </div>
                     </button>

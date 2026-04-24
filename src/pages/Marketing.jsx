@@ -11,11 +11,15 @@ const Marketing = () => {
     const [activeTemplate, setActiveTemplate] = useState(null);
     const [status, setStatus] = useState({ msg: '', type: '' });
 
+    // ── WhatsApp Broadcast State ──
+    const [isBroadcasting, setIsBroadcasting] = useState(false);
+    const [broadcastIndex, setBroadcastIndex] = useState(0);
+
     const templates = [
-        { id: 'discount', label: '10% OFF Discount', text: "Hello! Monsoon Meridian is offering a special 10% discount on all premium spices this week. Visit us today!" },
-        { id: 'new_stock', label: 'New Stock Alert', text: "New arrivals! We just stocked fresh artisan chocolates and single-origin coffees. Come check them out at Monsoon Meridian." },
-        { id: 'holiday', label: 'Holiday Greetings', text: "Season's Greetings from Monsoon Meridian! Thank you for being a valued customer. Stop by for a special holiday treat!" },
-        { id: 'clearance', label: 'Clearance Sale', text: "Final Clearance! Everything must go. Buy 1 Get 1 Free on all nuts and dry fruits. Only at Monsoon Meridian." }
+        { id: 'discount', label: '10% OFF Discount', text: "*Monsoon Meridian* is offering a special *10% DISCOUNT* on all premium spices this week. Visit us today!" },
+        { id: 'new_stock', label: 'New Stock Alert', text: "*New Arrivals!* We just stocked fresh artisan chocolates and single-origin coffees. Come check them out at *Monsoon Meridian*." },
+        { id: 'holiday', label: 'Holiday Greetings', text: "Season's Greetings from *Monsoon Meridian*! Thank you for being a valued customer. Stop by for a special holiday treat!" },
+        { id: 'clearance', label: 'Clearance Sale', text: "*FINAL CLEARANCE!* Everything must go. Buy 1 Get 1 Free on all nuts and dry fruits. Only at *Monsoon Meridian*." }
     ];
 
     useEffect(() => {
@@ -59,19 +63,16 @@ const Marketing = () => {
         if (selected.length === 0) return showStatus('No selected customers have email addresses', 'error');
 
         // Some clients (Outlook) prefer ; while others (Gmail) prefer ,
-        // We'll use , as it's the standard, but ensure the string is clean.
         const emails = selected.map(c => c.email.trim()).join(',');
         const subject = encodeURIComponent("Special Offer from Monsoon Meridian");
         const body = encodeURIComponent(message);
         
         const mailtoUrl = `mailto:?bcc=${emails}&subject=${subject}&body=${body}`;
         
-        // URL length check (standard limit is around 2000)
         if (mailtoUrl.length > 2000) {
             return showStatus(`Too many recipients (${selected.length}). Try selecting fewer customers.`, 'error');
         }
 
-        // Using a hidden anchor tag is more reliable than window.open
         const link = document.createElement('a');
         link.href = mailtoUrl;
         link.click();
@@ -82,8 +83,37 @@ const Marketing = () => {
     const handleWhatsAppSingle = (customer) => {
         if (!customer.phone) return showStatus(`No phone number for ${customer.name}`, 'error');
         const text = encodeURIComponent(message);
-        const phone = customer.phone.replace(/[^0-9]/g, ''); // Basic cleaning
+        const phone = customer.phone.replace(/[^0-9]/g, '');
         window.open(`https://wa.me/${phone}?text=${text}`, '_blank');
+    };
+
+    const startWhatsAppBroadcast = () => {
+        const selected = getSelectedCustomers().filter(c => c.phone);
+        if (selected.length === 0) return showStatus('No selected customers have phone numbers', 'error');
+        if (!message) return showStatus('Please enter a message first', 'error');
+        
+        setBroadcastIndex(0);
+        setIsBroadcasting(true);
+        // Open the first one immediately
+        sendNextWhatsApp(selected, 0);
+    };
+
+    const sendNextWhatsApp = (targetList = null, specificIdx = null) => {
+        const list = targetList || getSelectedCustomers().filter(c => c.phone);
+        const idx = specificIdx !== null ? specificIdx : broadcastIndex;
+        
+        if (idx < list.length) {
+            handleWhatsAppSingle(list[idx]);
+        } else {
+            setIsBroadcasting(false);
+            showStatus('WhatsApp Broadcast Complete!');
+        }
+    };
+
+    const handleNext = () => {
+        const newIdx = broadcastIndex + 1;
+        setBroadcastIndex(newIdx);
+        sendNextWhatsApp(null, newIdx);
     };
 
     const copyEmails = () => {
@@ -271,50 +301,103 @@ const Marketing = () => {
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
                             <button 
                                 onClick={handleEmailBCC}
-                                disabled={selectedIds.length === 0 || !message}
+                                disabled={selectedIds.length === 0 || !message || isBroadcasting}
                                 className="btn-secondary"
                                 style={{ 
                                     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.75rem',
-                                    opacity: (selectedIds.length === 0 || !message) ? 0.5 : 1
+                                    opacity: (selectedIds.length === 0 || !message || isBroadcasting) ? 0.5 : 1
                                 }}
                             >
-                                <Mail size={20} /> Bulk Email (BCC)
+                                <Mail size={20} /> Email (BCC)
                             </button>
                             <button 
-                                onClick={copyNumbers}
-                                disabled={selectedIds.length === 0}
-                                className="btn-primary"
+                                onClick={startWhatsAppBroadcast}
+                                disabled={selectedIds.length === 0 || !message || isBroadcasting}
                                 style={{ 
                                     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.75rem',
-                                    backgroundColor: '#10b981',
-                                    opacity: selectedIds.length === 0 ? 0.5 : 1
+                                    backgroundColor: '#25D366',
+                                    color: 'white',
+                                    padding: '0.75rem 1.5rem',
+                                    borderRadius: '10px',
+                                    fontWeight: 700,
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    opacity: (selectedIds.length === 0 || !message || isBroadcasting) ? 0.5 : 1,
+                                    boxShadow: '0 4px 12px rgba(37, 211, 102, 0.25)'
                                 }}
                             >
-                                <Copy size={20} /> Copy Phone List
+                                <MessageSquare size={20} /> WhatsApp Broadcast
                             </button>
                         </div>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1rem' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                             <button 
-                                onClick={copyEmails}
-                                disabled={selectedIds.length === 0}
-                                className="btn-secondary"
+                                onClick={copyNumbers}
+                                disabled={selectedIds.length === 0 || isBroadcasting}
                                 style={{ 
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.75rem',
-                                    opacity: selectedIds.length === 0 ? 0.5 : 1,
-                                    background: 'transparent',
-                                    border: '1.5px solid var(--c-wave)',
-                                    color: 'var(--c-wave)'
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+                                    padding: '0.6rem', fontSize: '0.8rem', background: 'var(--c-bg)', border: '1px solid var(--c-border)', borderRadius: '8px', cursor: 'pointer',
+                                    opacity: (selectedIds.length === 0 || isBroadcasting) ? 0.5 : 1
                                 }}
                             >
-                                <Mail size={20} /> Copy Email List (Manual)
+                                <Copy size={16} /> Copy Phone List
+                            </button>
+                            <button 
+                                onClick={copyEmails}
+                                disabled={selectedIds.length === 0 || isBroadcasting}
+                                style={{ 
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+                                    padding: '0.6rem', fontSize: '0.8rem', background: 'var(--c-bg)', border: '1px solid var(--c-border)', borderRadius: '8px', cursor: 'pointer',
+                                    opacity: (selectedIds.length === 0 || isBroadcasting) ? 0.5 : 1
+                                }}
+                            >
+                                <Mail size={16} /> Copy Email List
                             </button>
                         </div>
                         
+                        {/* Broadcasting Progress Overlay */}
+                        {isBroadcasting && (
+                            <div style={{ 
+                                marginTop: '1.5rem', 
+                                padding: '1.5rem', 
+                                background: 'linear-gradient(135deg, #25D366 0%, #128C7E 100%)', 
+                                borderRadius: '12px', 
+                                color: 'white',
+                                boxShadow: '0 8px 24px rgba(18, 140, 126, 0.3)',
+                                animation: 'slideUp 0.3s ease-out'
+                            }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                                    <h4 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                        <div style={{ width: 8, height: 8, background: 'white', borderRadius: '50%', animation: 'pulse 1s infinite' }} />
+                                        WhatsApp Broadcast Active
+                                    </h4>
+                                    <button onClick={() => setIsBroadcasting(false)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', padding: '0.2rem 0.5rem', borderRadius: '4px', fontSize: '0.7rem', cursor: 'pointer' }}>Cancel</button>
+                                </div>
+                                
+                                <div style={{ fontSize: '0.9rem', marginBottom: '1rem' }}>
+                                    Sending offer to: <span style={{ fontWeight: 700 }}>{getSelectedCustomers().filter(c => c.phone)[broadcastIndex]?.name}</span>
+                                    <div style={{ fontSize: '0.75rem', opacity: 0.8 }}>({broadcastIndex + 1} of {getSelectedCustomers().filter(c => c.phone).length})</div>
+                                </div>
+
+                                <div style={{ display: 'flex', gap: '0.75rem' }}>
+                                    <button 
+                                        onClick={handleNext}
+                                        style={{ 
+                                            flex: 1, padding: '0.75rem', background: 'white', color: '#128C7E', 
+                                            border: 'none', borderRadius: '8px', fontWeight: 700, cursor: 'pointer',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem'
+                                        }}
+                                    >
+                                        Send & Next <ExternalLink size={16} />
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
                         <div style={{ marginTop: '1rem', display: 'flex', alignItems: 'flex-start', gap: '0.5rem', color: 'var(--c-text-secondary)', padding: '0.75rem', background: 'var(--c-bg)', borderRadius: '8px' }}>
                             <ExternalLink size={16} style={{ marginTop: '2px', flexShrink: 0 }} />
                             <p style={{ fontSize: '0.75rem', margin: 0, lineHeight: 1.4 }}>
-                                <strong>Free Broadcasting Guide:</strong> Use "Bulk Email" to open your mail app with all customers in the BCC field. For WhatsApp, click the individual icons in the customer list to send personalized messages for free.
+                                <strong>Smart Broadcast:</strong> Use the green WhatsApp Broadcast button to cycle through customers. The system will open each chat with your pre-filled message automatically. Use `*` for bold text in WhatsApp (like *Discount*).
                             </p>
                         </div>
                     </div>

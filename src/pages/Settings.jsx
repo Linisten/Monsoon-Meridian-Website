@@ -3,6 +3,7 @@ import { Save, Building, Phone, Mail, MapPin, Receipt, Smartphone, CheckCircle, 
 import { QRCodeSVG } from 'qrcode.react';
 import { supabase } from '../config/supabaseClient';
 import SearchableSelect from '../components/SearchableSelect';
+import logoUrl from '../assets/logo.jpg';
 
 const INSTAGRAM_HANDLE = 'monsoonmeridian';
 const INSTAGRAM_URL    = `https://www.instagram.com/${INSTAGRAM_HANDLE}/`;
@@ -150,7 +151,7 @@ const Settings = () => {
 
           {/* Header */}
           <div style={{ textAlign: 'center', borderBottom: '2.5px dashed #000', paddingBottom: '1rem', marginBottom: '1rem', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <img src="/logo.jpg" alt="Logo" style={{ width: '300px', height: '120px', objectFit: 'contain', marginBottom: '10px' }} onError={(e) => e.target.style.display = 'none'} />
+            <img src={logoUrl} alt="Logo" style={{ width: '300px', height: '120px', objectFit: 'contain', marginBottom: '10px' }} onError={(e) => e.target.style.display = 'none'} />
             {form.address && <div style={{ fontSize: '14px', fontWeight: 700, margin: '4px 0' }}>{form.address}</div>}
             <div style={{ fontSize: '14px', fontWeight: 700 }}>
               {form.phone && `Tel: ${form.phone}`}

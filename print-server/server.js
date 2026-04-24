@@ -8,7 +8,8 @@ const os = require('os');
 const app = express();
 const PORT = 6789;
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '200mb' }));
+app.use(express.urlencoded({ limit: '200mb', extended: true, parameterLimit: 200000 }));
 
 // ── ESC/POS helpers ────────────────────────────────────────────────────────
 const b   = (...bytes) => Buffer.from(bytes);
@@ -32,8 +33,6 @@ function buildReceipt(data, settings = {}) {
   // PART 1: just init + center (logo goes here)
   add1(
     b(0x1B, 0x40),              // INIT
-    b(0x1D, 0x4C, 0x00, 0x00),  // GS L 0 0: Set left margin to exactly 0
-    b(0x1D, 0x57, 0x40, 0x02),  // GS W 64 2: Set print area width to 576 dots (full 80mm)
     b(0x1B, 0x4D, 0x00),        // ESC M 0: Explicitly select standard Font A (12x24)
     b(0x1B, 0x61, 0x01)         // Center align for logo
   );
@@ -144,9 +143,62 @@ function buildReceipt(data, settings = {}) {
   };
 }
 
+// ── Label builder (Image-based for 2-up labels) ──────────────────────────────
+async function buildLabelJob(images, copies = 1) {
+  const chunks = [];
+  
+  // INIT
+  chunks.push(b(0x1B, 0x40));
+  
+  // We'll return an array of images for the PS1 script to process
+  // because bit-image conversion is already implemented in pos_print.ps1
+  return chunks;
+}
+
+// ── Print via external PS1 script ──────────────────────────────────────────
+async function printLabels(labelImages, copies = 1, printerName) {
+  const ps1File  = path.resolve(__dirname, 'pos_print.ps1');
+  const tempDir  = os.tmpdir();
+  
+  // Save images to temp files
+  const filePaths = labelImages.map((base64, i) => {
+    const filePath = path.join(tempDir, `mm_label_${Date.now()}_${i}.jpg`);
+    const buffer = Buffer.from(base64.split(',')[1], 'base64');
+    fs.writeFileSync(filePath, buffer);
+    return filePath;
+  });
+
+  // Prepare chunks (Init + Images + Cut)
+  // For simplicity, we'll reuse the Logo logic in pos_print.ps1 by sending multiple jobs or modifying ps1
+  // Actually, let's modify pos_print.ps1 to handle multiple images in one JSON
+  
+  const jsonFile = path.join(tempDir, `mm_labels_${Date.now()}.json`);
+  fs.writeFileSync(jsonFile, JSON.stringify({
+    labelFiles: filePaths,
+    copies: parseInt(copies),
+    printer: printerName,
+    cut: true
+  }));
+
+  return new Promise((resolve) => {
+    const proc = spawn('powershell.exe', [
+      '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps1File, jsonFile
+    ]);
+    proc.on('close', code => {
+      filePaths.forEach(p => { try { fs.unlinkSync(p); } catch {} });
+      try { fs.unlinkSync(jsonFile); } catch {}
+      resolve();
+    });
+  });
+}
+
 // ── Print via external PS1 script ──────────────────────────────────────────
 async function printReceipt(data, settings, printerName) {
-  const logoPath = path.resolve(__dirname, '..', 'public', 'logo.jpg').replace(/\\/g, '/');
+  // Find logo: check production path (dist) first, then development path (public)
+  const prodLogo = path.resolve(__dirname, '..', 'dist', 'logo.jpg');
+  const devLogo  = path.resolve(__dirname, '..', 'public', 'logo.jpg');
+  const logoPath = (fs.existsSync(prodLogo) ? prodLogo : devLogo).replace(/\\/g, '/');
+  
   const { part1, part2, post } = buildReceipt(data, settings);
 
   const jsonFile = path.join(os.tmpdir(), `mm_${Date.now()}.json`);
@@ -206,6 +258,24 @@ app.post('/print', async (req, res) => {
     res.json({ success: true, printer: target });
   } catch (err) {
     console.error('[PRINT ERR]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/print-labels', async (req, res) => {
+  console.log(`[HTTP] → Incoming label print request (${req.body?.images?.length} rows)`);
+  try {
+    const { images, copies } = req.body;
+    if (!images || !images.length) return res.status(400).json({ error: 'No images provided' });
+
+    const printers = getPrinters();
+    const target = printers.find(p => p.isDefault)?.name || printers[0]?.name;
+    if (!target) return res.status(500).json({ error: 'No printer found' });
+
+    await printLabels(images, copies || 1, target);
+    res.json({ success: true, printer: target });
+  } catch (err) {
+    console.error('[LABEL PRINT ERR]', err);
     res.status(500).json({ error: err.message });
   }
 });

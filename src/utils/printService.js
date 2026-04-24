@@ -5,8 +5,9 @@
  * The print server (print-server/server.js) must be running on port 6789.
  *
  * Usage:
- *   import { printReceipt, checkPrintServer } from './printService';
+ *   import { printReceipt, printLabels, checkPrintServer } from './printService';
  *   await printReceipt(transaction, systemSettings);
+ *   await printLabels(['base64image...'], copies);
  */
 
 const PRINT_SERVER = 'http://localhost:6789';
@@ -101,6 +102,28 @@ export async function printReceipt(tx, settings = {}, printerName = null) {
     if (err.name === 'TimeoutError' || err.name === 'AbortError') {
       return { success: false, error: 'Print server timeout' };
     }
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Send label images to the local server for batch printing.
+ * @param {string[]} images - Array of Base64 image strings (each representing a row of labels)
+ * @param {number} [copies=1] - Number of times to print the entire batch
+ */
+export async function printLabels(images, copies = 1) {
+  try {
+    const res = await fetch(`${PRINT_SERVER}/print-labels`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ images, copies }),
+      signal:  AbortSignal.timeout(15000),
+    });
+
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || 'Print server error');
+    return { success: true, printer: data.printer };
+  } catch (err) {
     return { success: false, error: err.message };
   }
 }

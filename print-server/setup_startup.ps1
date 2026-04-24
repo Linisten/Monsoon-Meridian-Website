@@ -11,3 +11,4 @@ $Shortcut.IconLocation = "shell32.dll, 16" # Printer icon
 $Shortcut.Save()
 
 Write-Host "✅ Print Server added to Windows Startup at: $ShortcutPath" -ForegroundColor Green
+http://www.plastoseal.in

@@ -6,13 +6,19 @@ $d = Get-Content $jsonPath | ConvertFrom-Json
 function Logo([string]$path) {
     if (-not (Test-Path $path)) { Write-Host "Logo not found"; return [byte[]]@() }
     $img = [System.Drawing.Image]::FromFile($path)
-    $pw = 384; $ph = [int]($img.Height * $pw / $img.Width)
+    # Target bit-image width (multiples of 8)
+    $pw = 576; # Full 80mm width for labels too
+    $ph = [int]($img.Height * $pw / $img.Width)
     $bmp = New-Object System.Drawing.Bitmap $pw,$ph
     $gfx = [System.Drawing.Graphics]::FromImage($bmp)
+    $gfx.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
     $gfx.DrawImage($img, 0, 0, $pw, $ph)
     $gfx.Dispose(); $img.Dispose()
-    $xL = [byte]($pw / 8); $xH = [byte](0)
+    
+    $xL = [byte](($pw / 8) % 256); $xH = [byte]([Math]::Floor(($pw / 8) / 256))
     $yL = [byte]($ph % 256); $yH = [byte]([Math]::Floor($ph / 256))
+    
+    # GS v 0 0 xL xH yL yH
     $hdr = [byte[]](0x1B,0x61,0x01, 0x1D,0x76,0x30,0x00, $xL,$xH,$yL,$yH)
     $body = New-Object byte[] ($pw/8 * $ph)
     $idx = 0
@@ -20,18 +26,20 @@ function Logo([string]$path) {
         for ($col=0; $col -lt $pw; $col+=8) {
             $byte = 0
             for ($bit=0; $bit -lt 8; $bit++) {
-                $px = $bmp.GetPixel($col+$bit, $row)
-                if ($px.GetBrightness() -lt 0.71) { $byte = $byte -bor (1 -shl (7-$bit)) }
+                if ($col+$bit -lt $pw) {
+                    $px = $bmp.GetPixel($col+$bit, $row)
+                    if ($px.GetBrightness() -lt 0.71) { $byte = $byte -bor (1 -shl (7-$bit)) }
+                }
             }
             $body[$idx++] = [byte]$byte
         }
     }
     $bmp.Dispose()
-    Write-Host "Logo: $($pw)x$($ph) = $($hdr.Length+$body.Length) bytes"
     return [byte[]]($hdr + $body)
 }
 
 function QR([string]$text) {
+    if (-not $text) { return [byte[]]@() }
     $txt = [System.Text.Encoding]::ASCII.GetBytes($text)
     $pL = [byte](($txt.Length + 3) % 256)
     $pH = [byte]([Math]::Floor(($txt.Length + 3) / 256))
@@ -44,28 +52,38 @@ function QR([string]$text) {
       [byte[]](0x1D,0x28,0x6B, 3,0, 49,81,48)
 }
 
-[byte[]]$part1 = [Convert]::FromBase64String($d.part1)
-[byte[]]$part2 = [Convert]::FromBase64String($d.part2)
-[byte[]]$post  = [Convert]::FromBase64String($d.post)
-[byte[]]$logo  = Logo $d.logo
-[byte[]]$qr    = QR $d.qr
-[byte[]]$full  = $part1 + $logo + $part2 + $qr + $post
+# ── Assemble Bytes ───────────────────────────────────────────────────────────
+[byte[]]$full = @()
+
+if ($d.labelFiles) {
+    # Label Printing Job
+    $full += [byte[]](0x1B, 0x40) # INIT
+    for ($c=0; $c -lt $d.copies; $c++) {
+        foreach ($file in $d.labelFiles) {
+            $full += Logo $file
+            $full += [byte[]](0x0A) # LF
+        }
+    }
+    if ($d.cut) {
+        $full += [byte[]](0x1B, 0x64, 0x05) # Feed 5
+        $full += [byte[]](0x1D, 0x56, 0x01) # Full Cut
+    }
+} else {
+    # Receipt Printing Job
+    [byte[]]$part1 = [Convert]::FromBase64String($d.part1)
+    [byte[]]$part2 = [Convert]::FromBase64String($d.part2)
+    [byte[]]$post  = [Convert]::FromBase64String($d.post)
+    [byte[]]$logo  = Logo $d.logo
+    [byte[]]$qr    = QR $d.qr
+    $full = $part1 + $logo + $part2 + $qr + $post
+}
 
 Write-Host "Total: $($full.Length) bytes"
 
-# Write directly to USB printer port - bypasses Windows GDI driver
-$port = "USB001"
+# ── Transmission ─────────────────────────────────────────────────────────────
+$printer = $d.printer
 try {
-    $stream = [System.IO.File]::Open("\\.\$port", [System.IO.FileMode]::Open, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
-    $stream.Write($full, 0, $full.Length)
-    $stream.Flush()
-    $stream.Close()
-    Write-Host "Direct USB write: OK"
-} catch {
-    Write-Host "Direct USB failed: $_"
-    Write-Host "Falling back to spooler..."
-    
-    # Fallback: spooler RAW
+    # Attempt RAW spooling (Most reliable for network/shared printers)
     $rawDef = @"
 using System;
 using System.Runtime.InteropServices;
@@ -89,23 +107,30 @@ public class WP2 {
     }
 }
 "@
-    Add-Type -TypeDefinition $rawDef
+    Add-Type -TypeDefinition $rawDef -ErrorAction SilentlyContinue
     $h = [IntPtr]::Zero
-    $di = New-Object WP2+DI; $di.pDocName = 'Receipt'; $di.pDataType = 'RAW'
-    [WP2]::OpenPrinter($d.printer,[ref]$h,[IntPtr]::Zero) | Out-Null
-    [WP2]::StartDocPrinter($h,1,$di) | Out-Null
-    $chunkSz = 1024
-    for ($i=0; $i -lt $full.Length; $i += $chunkSz) {
-        $take = [Math]::Min($chunkSz, $full.Length - $i)
-        $slice = New-Object byte[] $take
-        [Buffer]::BlockCopy($full,$i,$slice,0,$take)
-        $ptr = [System.Runtime.InteropServices.Marshal]::AllocCoTaskMem($take)
-        [System.Runtime.InteropServices.Marshal]::Copy($slice,0,$ptr,$take)
-        $wr = 0; [WP2]::WritePrinter($h,$ptr,$take,[ref]$wr) | Out-Null
-        [System.Runtime.InteropServices.Marshal]::FreeCoTaskMem($ptr)
-        Start-Sleep -Milliseconds 20
+    $di = New-Object WP2+DI; $di.pDocName = 'PrintJob'; $di.pDataType = 'RAW'
+    if ([WP2]::OpenPrinter($printer,[ref]$h,[IntPtr]::Zero)) {
+        [WP2]::StartDocPrinter($h,1,$di) | Out-Null
+        [WP2]::StartPagePrinter($h) | Out-Null
+        $chunkSz = 1024
+        for ($i=0; $i -lt $full.Length; $i += $chunkSz) {
+            $take = [Math]::Min($chunkSz, $full.Length - $i)
+            $slice = New-Object byte[] $take
+            [Buffer]::BlockCopy($full,$i,$slice,0,$take)
+            $ptr = [System.Runtime.InteropServices.Marshal]::AllocCoTaskMem($take)
+            [System.Runtime.InteropServices.Marshal]::Copy($slice,0,$ptr,$take)
+            $wr = 0; [WP2]::WritePrinter($h,$ptr,$take,[ref]$wr) | Out-Null
+            [System.Runtime.InteropServices.Marshal]::FreeCoTaskMem($ptr)
+        }
+        [WP2]::EndPagePrinter($h) | Out-Null
+        [WP2]::EndDocPrinter($h) | Out-Null
+        [WP2]::ClosePrinter($h) | Out-Null
+        Write-Host "Sent to $($printer): OK"
+    } else {
+        throw "Could not open printer $($printer)"
     }
-    [WP2]::EndDocPrinter($h) | Out-Null
-    [WP2]::ClosePrinter($h) | Out-Null
-    Write-Host "Spooler fallback: done"
+} catch {
+    Write-Host "Print failed: $_"
+    exit 1
 }

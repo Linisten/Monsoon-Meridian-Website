@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Save, XCircle, Plus, CheckCircle } from 'lucide-react';
 import { supabase } from '../config/supabaseClient';
 import SearchableSelect from '../components/SearchableSelect';
+import { setScannerHandler, clearScannerHandler } from '../utils/keyboardManager';
 
 const Purchase = () => {
   const [billItems, setBillItems] = useState([]);
@@ -11,6 +12,7 @@ const Purchase = () => {
   const [activeItem, setActiveItem] = useState(null);
   const [purQty, setPurQty] = useState(1);
   const [purRate, setPurRate] = useState(0);
+  const [purExpiry, setPurExpiry] = useState('');
   const [searchInput, setSearchInput] = useState('');
   const [billDate, setBillDate] = useState(new Date().toISOString().split('T')[0]);
   const [billNo, setBillNo] = useState('');
@@ -23,6 +25,9 @@ const Purchase = () => {
   const [suppliers, setSuppliers] = useState([]);
   const navigate = useNavigate();
   const searchInputRef = useRef(null);
+  const scannerBuffer = useRef('');
+  const scannerTimeout = useRef(null);
+  const scannerLogicRef = useRef(null);
 
   const formatItemName = (name) => {
     const max = 22; // consistent with bill layout
@@ -31,16 +36,39 @@ const Purchase = () => {
     return name.substring(0, max - 10) + "..." + name.slice(-7);
   };
 
+  // ── SCANNER LOGIC ───────────────────────────────────────────────────────
+  const processBarcode = useCallback((code) => {
+    if (!code) return;
+    const item = items.find(it => it.code?.toLowerCase() === code.toLowerCase());
+    if (item) {
+      setActiveItem(item);
+      setPurRate(item.rate || 0);
+      setPurQty(1);
+      setSearchInput('');
+      return true;
+    }
+    return false;
+  }, [items]);
+
+  useEffect(() => {
+    scannerLogicRef.current = processBarcode;
+    setScannerHandler(processBarcode);
+    return () => clearScannerHandler();
+  }, [processBarcode]);
+
   useEffect(() => {
     const handleKeyDown = (e) => {
+      // F4 Focus Logic (Page specific)
       if (e.key === 'F4') {
         e.preventDefault();
         searchInputRef.current?.focus();
       }
     };
+
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
 
   useEffect(() => {
     fetchItems();
@@ -76,18 +104,23 @@ const Purchase = () => {
         ...activeItem,
         qty: purQty,
         rate: purRate,
+        expiry: purExpiry,
         amount: purQty * purRate
       };
       setBillItems([...billItems, newItem]);
     }
     setActiveItem(null);
+    setPurExpiry('');
+    // refocus search bar for next item
+    setTimeout(() => searchInputRef.current?.focus(), 0);
   };
 
   const handleBarcodeScan = (e) => {
     if (e.key === 'Enter') {
-      const code = searchInput.trim();
+      e.preventDefault();
+      const code = e.target.value.trim(); // Use direct value to avoid state race condition
       if (!code) return;
-      const item = items.find(it => it.code.toLowerCase() === code.toLowerCase());
+      const item = items.find(it => (it.code || '').toLowerCase() === code.toLowerCase());
       if (item) {
         setActiveItem(item);
         setPurRate(item.rate || 0);
@@ -121,16 +154,29 @@ const Purchase = () => {
     });
     if (purchaseError) return alert('Error saving purchase: ' + purchaseError.message);
 
-    // Step 5: Auto-update stock_quantity (ATOMIC)
-    const stockUpdates = billItems.map(item => 
-      supabase.rpc('handle_stock_update', { 
-        item_id: item.id, 
-        quantity_change: item.qty 
-      })
-    );
+    // Step 5: Auto-update stock_quantity and expiry_date
+    const stockUpdates = billItems.map(item => {
+      const updates = [
+        supabase.rpc('handle_stock_update', { 
+          item_id: item.id, 
+          quantity_change: item.qty 
+        })
+      ];
+      
+      // If expiry was provided, update it in the items master record
+      if (item.expiry) {
+        updates.push(
+          supabase.from('items')
+            .update({ expiry_date: item.expiry })
+            .eq('id', item.id)
+        );
+      }
+      return Promise.all(updates);
+    });
+    
     await Promise.all(stockUpdates);
 
-    alert(`Purchase saved! Stock updated for ${billItems.length} item(s).`);
+    alert(`Purchase saved! Stock and Expiry dates updated for ${billItems.length} item(s).`);
     setBillItems([]);
     setBillNo('');
     setReferenceNo('');
@@ -236,8 +282,8 @@ const Purchase = () => {
         {/* Added Items Table */}
         <div className="card" style={{ flex: 1, borderTopLeftRadius: 0, padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           {activeSubTab === 'items' && (
-            <div style={{ backgroundColor: 'var(--c-olive)', color: 'white', padding: '0.75rem 1rem', display: 'grid', gridTemplateColumns: '40px 60px 2fr 60px 60px 80px 80px 80px 40px', fontWeight: 600, fontSize: '0.75rem', position: 'sticky', top: 0, zIndex: 10 }}>
-              <div>SL</div><div>Item</div><div>Item Description</div><div>Unit/Pack</div><div style={{textAlign:'right'}}>PQty</div><div style={{textAlign:'right'}}>MRP</div><div style={{textAlign:'right'}}>Rate</div><div style={{textAlign:'right'}}>Amount</div><div></div>
+            <div style={{ backgroundColor: 'var(--c-olive)', color: 'white', padding: '0.75rem 1rem', display: 'grid', gridTemplateColumns: '40px 60px 2fr 80px 60px 60px 80px 80px 80px 40px', fontWeight: 600, fontSize: '0.75rem', position: 'sticky', top: 0, zIndex: 10 }}>
+              <div>SL</div><div>Item</div><div>Item Description</div><div>Expiry</div><div>Unit/Pack</div><div style={{textAlign:'right'}}>PQty</div><div style={{textAlign:'right'}}>MRP</div><div style={{textAlign:'right'}}>Rate</div><div style={{textAlign:'right'}}>Amount</div><div></div>
             </div>
           )}
           
@@ -248,10 +294,11 @@ const Purchase = () => {
                   <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--c-text-secondary)' }}>No items added yet. Select an item from the right panel to begin.</div>
                 ) : (
                   billItems.map((item, index) => (
-                    <div key={index} style={{ padding: '0.5rem 1.0rem', display: 'grid', gridTemplateColumns: '40px 60px 2fr 60px 60px 80px 80px 80px 40px', fontSize: '0.8rem', borderBottom: '1px solid var(--c-border)' }}>
+                    <div key={index} style={{ padding: '0.5rem 1.0rem', display: 'grid', gridTemplateColumns: '40px 60px 2fr 80px 60px 60px 80px 80px 80px 40px', fontSize: '0.8rem', borderBottom: '1px solid var(--c-border)' }}>
                       <div style={{color:'var(--c-text-secondary)'}}>{index + 1}</div>
                       <div style={{fontWeight:600}}>{item.code}</div>
                       <div style={{color:'var(--c-olive-dark)'}}>{formatItemName(item.name)}</div>
+                      <div style={{fontSize: '0.7rem'}}>{item.expiry || '--'}</div>
                       <div>{item.unit || item.pack}</div>
                       <div style={{textAlign:'right', fontWeight:600}}>{item.qty}</div>
                       <div style={{textAlign:'right'}}>{(item.mrp || 0).toFixed(2)}</div>
@@ -371,9 +418,9 @@ const Purchase = () => {
                 <label style={{ fontSize: '0.7rem' }}>Rate</label>
                 <input type="number" value={purRate} onChange={(e) => setPurRate(Number(e.target.value))} style={{ padding: '0.4rem', fontSize: '0.85rem' }} />
               </div>
-              <div style={{ flex: 1 }}>
-                <label style={{ fontSize: '0.7rem' }}>Pur Amt</label>
-                <input type="text" value={(purQty * purRate).toFixed(2)} readOnly style={{ padding: '0.4rem', fontSize: '0.85rem', backgroundColor: 'var(--c-bg-card)', color: 'var(--c-wave)', fontWeight: 600 }} />
+              <div style={{ flex: 1.5 }}>
+                <label style={{ fontSize: '0.7rem' }}>Expiry Date</label>
+                <input type="date" value={purExpiry} onChange={(e) => setPurExpiry(e.target.value)} style={{ padding: '0.4rem', fontSize: '0.85rem' }} />
               </div>
               <div style={{ display: 'flex', alignItems: 'flex-end' }}>
                 <button onClick={addItemToBill} className="btn-primary" style={{ padding: '0.4rem 1rem', display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
