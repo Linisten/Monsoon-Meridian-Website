@@ -16,7 +16,7 @@ const BarcodeGenerator = () => {
   const [serverStatus, setServerStatus] = useState({ online: false, checking: true });
   
   // ─── MODE-SPECIFIC CONFIGURATION ──────────────────────────────────────
-  const [labelMode, setLabelMode] = useState('standard'); // 'standard', 'custom', 'advanced'
+  const [labelMode, setLabelMode] = useState('standard'); 
 
   // --- STANDARD MODE SETTINGS ---
   const [standardDpi, setStandardDpi] = useState(203);
@@ -72,8 +72,8 @@ const BarcodeGenerator = () => {
   });
 
   // Active State Accessors (Standard is fixed at 2-col, 38x25mm per sticker)
-  const activeFields = labelMode === 'custom' ? designerFields : advancedFields;
-  const setActiveFields = labelMode === 'custom' ? setDesignerFields : setAdvancedFields;
+  const activeFields = labelMode === 'standard' ? [] : (labelMode === 'custom' ? designerFields : advancedFields);
+  const setActiveFields = labelMode === 'standard' ? (() => {}) : (labelMode === 'custom' ? setDesignerFields : setAdvancedFields);
   const activeLpr = labelMode === 'standard' ? standardLpr : (labelMode === 'custom' ? designerLpr : advancedLpr);
   const setActiveLpr = labelMode === 'standard' ? setStandardLpr : (labelMode === 'custom' ? setDesignerLpr : setAdvancedLpr);
   const activeHeight = labelMode === 'custom' ? designerHeight : (labelMode === 'standard' ? standardHeight : advancedHeight);
@@ -82,10 +82,10 @@ const BarcodeGenerator = () => {
   const setActiveWidth = labelMode === 'custom' ? setDesignerWidth : (labelMode === 'standard' ? setStandardWidth : setAdvancedWidth);
   const activeRotation = labelMode === 'custom' ? designerRotation : (labelMode === 'advanced' ? advancedRotation : 0);
   const setActiveRotation = labelMode === 'custom' ? setDesignerRotation : setAdvancedRotation;
-  const activeBgImage = labelMode === 'custom' ? designerBgImage : advancedBgImage;
-  const setActiveBgImage = labelMode === 'custom' ? setDesignerBgImage : setAdvancedBgImage;
-  const activeBgSettings = labelMode === 'custom' ? designerBgSettings : advancedBgSettings;
-  const setActiveBgSettings = labelMode === 'custom' ? setDesignerBgSettings : setAdvancedBgSettings;
+  const activeBgImage = labelMode === 'standard' ? null : (labelMode === 'custom' ? designerBgImage : advancedBgImage);
+  const setActiveBgImage = labelMode === 'standard' ? (() => {}) : (labelMode === 'custom' ? setDesignerBgImage : setAdvancedBgImage);
+  const activeBgSettings = labelMode === 'standard' ? { x: 0, y: 0, width: 75, height: 25 } : (labelMode === 'custom' ? designerBgSettings : advancedBgSettings);
+  const setActiveBgSettings = labelMode === 'standard' ? (() => {}) : (labelMode === 'custom' ? setDesignerBgSettings : setAdvancedBgSettings);
   
   const activeDpi = labelMode === 'custom' ? designerDpi : (labelMode === 'standard' ? standardDpi : advancedDpi);
   const setActiveDpi = labelMode === 'custom' ? setDesignerDpi : (labelMode === 'standard' ? setStandardDpi : setAdvancedDpi);
@@ -105,7 +105,7 @@ const BarcodeGenerator = () => {
 
   const canvasRef = useRef(null);
   const fileInputRef = useRef(null);
-  const mmToPx = 3.2; // Scale for preview
+  const mmToPx = 4.4; // Updated to match print scale for perfect WYSIWYG
   const PREVIEW_SCALE = 1.5; // Scale applied in CSS transform
 
   // Persist settings
@@ -386,17 +386,17 @@ const BarcodeGenerator = () => {
           const gapPx = standardGap * standardScale * (dotsPerMm / mmToPx);
 
           // Name
-          ctx.font = `bold ${nSize * (dotsPerMm/mmToPx)}px Arial`;
-          const nameY = p + (nSize * dotsPerMm / mmToPx) + globalOffsetY;
-          ctx.fillText(formatItemName(productName.toUpperCase()), x + sw/2 + globalOffsetX, nameY);
+          ctx.font = `bold ${nSize * (dotsPerMm/4.4)}px Arial`;
+          const nameY = p + (nSize * dotsPerMm / 4.4) + globalOffsetY;
+          ctx.fillText(productName.toUpperCase(), x + sw/2 + globalOffsetX, nameY);
           
           // Barcode
           const bcY = nameY + gapPx;
           ctx.drawImage(barcodeImg, x + (sw - bW)/2 + globalOffsetX, bcY, bW, bH);
           
           // Price
-          const priceY = bcY + bH + gapPx + (pSize * dotsPerMm / mmToPx) / 2;
-          ctx.font = `bold ${pSize * (dotsPerMm/mmToPx)}px Arial`;
+          const priceY = bcY + bH + gapPx + (pSize * dotsPerMm / 4.4);
+          ctx.font = `bold ${pSize * (dotsPerMm/4.4)}px Arial`;
           ctx.fillText(`Rs ${price}`, x + sw/2 + globalOffsetX, priceY);
           ctx.restore();
         }
@@ -407,7 +407,7 @@ const BarcodeGenerator = () => {
         URL.revokeObjectURL(svgUrl);
       } else {
         // Custom & Advanced Mode
-        const colWidthMm = (75 - (activeLpr - 1)) / activeLpr;
+        const colWidthMm = (activeWidth - (activeLpr - 1)) / activeLpr;
         const colWidthPx = colWidthMm * dotsPerMm;
 
         // Load background if needed
@@ -442,9 +442,12 @@ const BarcodeGenerator = () => {
           ctx.textAlign = 'left';
           ctx.textBaseline = 'top';
           activeFields.forEach(f => {
-            const dotSize = (f.size * dotsPerMm) / mmToPx;
+            const dotSize = (f.size * dotsPerMm) / 4.4; // Using 4.4 as confirmed perfect factor
             ctx.font = `${f.bold ? 'bold' : ''} ${dotSize}px Arial`;
-            ctx.fillText(f.text, (f.x * dotsPerMm) + offsetX + globalOffsetX, (f.y * dotsPerMm) + globalOffsetY);
+            // Apply global offsets to final calculated points
+            const fx = (f.x * dotsPerMm) + offsetX + globalOffsetX;
+            const fy = (f.y * dotsPerMm) + globalOffsetY;
+            ctx.fillText(f.text, fx, fy);
           });
           ctx.restore();
         };
@@ -786,9 +789,6 @@ const BarcodeGenerator = () => {
             <div className="segmented-control" style={{ marginTop: '1rem' }}>
               <button onClick={() => setLabelMode('standard')} className={`mode-btn ${labelMode === 'standard' ? 'active' : ''}`}>
                 <Layout size={16} /> Standard
-              </button>
-              <button onClick={() => setLabelMode('custom')} className={`mode-btn ${labelMode === 'custom' ? 'active' : ''}`}>
-                <Settings2 size={16} /> Designer
               </button>
               <button onClick={() => setLabelMode('advanced')} className={`mode-btn ${labelMode === 'advanced' ? 'active' : ''}`}>
                 <ImageIcon size={16} /> Advanced (Image)
@@ -1221,15 +1221,23 @@ const BarcodeGenerator = () => {
                             flexDirection: 'column', 
                             alignItems: 'center', 
                             justifyContent: 'flex-start', 
-                            padding: '6px', 
+                            padding: `${6 * (mmToPx / 4.4)}px`, 
                             height: '100%', 
                             borderRight: i < activeLpr - 1 ? '1px dashed #cbd5e1' : 'none',
-                            gap: `${standardGap * standardScale}px`
+                            gap: `${standardGap * standardScale * (mmToPx / 4.4)}px`
                           }}
                         >
-                          <div style={{ fontSize: `${standardNameSize * standardScale}px`, fontWeight: 800, color: '#1e293b', textAlign: 'center' }}>{formatItemName(productName.toUpperCase())}</div>
-                          <div style={{ transform: `scale(${standardBarcodeWidth * standardScale})`, transformOrigin: 'top center' }}><Barcode value={barcodeValue || 'VOID'} width={1.0} height={standardBarcodeHeight * standardScale} fontSize={10} margin={0} /></div>
-                          <div style={{ fontSize: `${standardPriceSize * standardScale}px`, fontWeight: 900, color: '#1e293b' }}>Rs {price}</div>
+                          <div style={{ fontSize: `${(standardNameSize * standardScale) * (mmToPx / 4.4)}px`, fontWeight: 800, color: '#1e293b', textAlign: 'center', lineHeight: 1.1 }}>{productName.toUpperCase()}</div>
+                          <div style={{ transform: `scale(${standardBarcodeWidth * standardScale * (mmToPx / 4.4)})`, transformOrigin: 'top center' }}>
+                            <Barcode 
+                              value={barcodeValue || 'VOID'} 
+                              width={1.0} 
+                              height={standardBarcodeHeight * (mmToPx / 4.4)} 
+                              fontSize={10 * (mmToPx / 4.4)} 
+                              margin={0} 
+                            />
+                          </div>
+                          <div style={{ fontSize: `${(standardPriceSize * standardScale) * (mmToPx / 4.4)}px`, fontWeight: 900, color: '#1e293b' }}>Rs {price}</div>
                         </div>
                       ))}
                     </>
@@ -1390,9 +1398,9 @@ const BarcodeGenerator = () => {
                           )}
                           {labelMode === 'standard' ? (
                             <div className="printable-sticker" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', padding: '6px', height: '100%', gap: `${standardGap * standardScale}px` }}>
-                              <div style={{ fontSize: `${standardNameSize * standardScale}px`, fontWeight: 800, color: '#1e293b', textAlign: 'center' }}>{formatItemName(productName.toUpperCase())}</div>
-                              <div style={{ transform: `scale(${standardBarcodeWidth * standardScale})`, transformOrigin: 'top center' }}><Barcode value={barcodeValue || 'VOID'} width={1.0} height={standardBarcodeHeight * standardScale} fontSize={10} margin={0} /></div>
-                              <div style={{ fontSize: `${standardPriceSize * standardScale}px`, fontWeight: 900, color: '#1e293b' }}>Rs {price}</div>
+                              <div style={{ fontSize: `${(standardNameSize * standardScale) * (mmToPx / 4.4)}px`, fontWeight: 800, color: '#1e293b', textAlign: 'center' }}>{formatItemName(productName.toUpperCase())}</div>
+                              <div style={{ transform: `scale(${standardBarcodeWidth * standardScale * (mmToPx / 4.4)})`, transformOrigin: 'top center' }}><Barcode value={barcodeValue || 'VOID'} width={1.0} height={standardBarcodeHeight * (mmToPx / 4.4)} fontSize={10} margin={0} /></div>
+                              <div style={{ fontSize: `${(standardPriceSize * standardScale) * (mmToPx / 4.4)}px`, fontWeight: 900, color: '#1e293b' }}>Rs {price}</div>
                             </div>
                           ) : (
                             activeFields.map(f => (
