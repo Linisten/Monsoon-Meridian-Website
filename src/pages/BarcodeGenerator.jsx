@@ -3,7 +3,7 @@ import Barcode from 'react-barcode';
 import { 
   Printer, Settings2, CheckCircle2, AlertCircle, 
   Plus, Trash2, Layout, Image as ImageIcon, 
-  Type, Move, Maximize2, Sparkles
+  Type, Move, Maximize2, Sparkles, RotateCw
 } from 'lucide-react';
 import { printLabels, checkPrintServer } from '../utils/printService';
 
@@ -15,27 +15,93 @@ const BarcodeGenerator = () => {
   const [isPrinting, setIsPrinting] = useState(false);
   const [serverStatus, setServerStatus] = useState({ online: false, checking: true });
   
-  // ─── CUSTOM/ADVANCED DESIGNER STATE ──────────────────────────────────────
+  // ─── MODE-SPECIFIC CONFIGURATION ──────────────────────────────────────
   const [labelMode, setLabelMode] = useState('standard'); // 'standard', 'custom', 'advanced'
-  const [customFields, setCustomFields] = useState(() => {
-    const saved = localStorage.getItem('mm_custom_fields');
+
+  // --- STANDARD MODE SETTINGS ---
+  const [standardDpi, setStandardDpi] = useState(203);
+  const [standardOffset, setStandardOffset] = useState({ x: 0, y: 0 });
+  const [standardHeight, setStandardHeight] = useState(() => parseInt(localStorage.getItem('mm_standard_height_std')) || 25);
+  const [standardWidth, setStandardWidth] = useState(() => parseInt(localStorage.getItem('mm_standard_width')) || 75);
+  const [standardLpr, setStandardLpr] = useState(() => parseInt(localStorage.getItem('mm_standard_lpr')) || 2);
+  const [standardBarcodeWidth, setStandardBarcodeWidth] = useState(() => parseFloat(localStorage.getItem('mm_standard_bc_w')) || 1.0);
+  const [standardBarcodeHeight, setStandardBarcodeHeight] = useState(() => parseInt(localStorage.getItem('mm_standard_bc_h')) || 30);
+  const [standardNameSize, setStandardNameSize] = useState(() => parseInt(localStorage.getItem('mm_standard_name_s')) || 10);
+  const [standardPriceSize, setStandardPriceSize] = useState(() => parseInt(localStorage.getItem('mm_standard_price_s')) || 12);
+  const [standardScale, setStandardScale] = useState(() => parseFloat(localStorage.getItem('mm_standard_scale')) || 1.0);
+  const [standardGap, setStandardGap] = useState(() => parseInt(localStorage.getItem('mm_standard_gap')) || 4);
+
+  // --- DESIGNER (CUSTOM) STATE ---
+  const [designerFields, setDesignerFields] = useState(() => {
+    const saved = localStorage.getItem('mm_designer_fields');
     return saved ? JSON.parse(saved) : [
-      { id: 1, text: 'PRODUCT NAME', x: 2, y: 5, size: 14, bold: true },
-      { id: 2, text: 'BATCH: B123', x: 2, y: 12, size: 10, bold: false }
+      { id: 'designer_1', text: 'DESIGNER: NAME', x: 2, y: 5, size: 14, bold: true },
     ];
   });
-  const [activeFieldId, setActiveFieldId] = useState(null);
-  const [customHeight, setCustomHeight] = useState(() => parseInt(localStorage.getItem('mm_custom_height')) || 20); 
-  const [customWidth, setCustomWidth] = useState(75); 
-  const [labelsPerRow, setLabelsPerRow] = useState(() => parseInt(localStorage.getItem('mm_labels_per_row')) || 1); 
+  const [designerHeight, setDesignerHeight] = useState(() => parseInt(localStorage.getItem('mm_designer_height')) || 25);
+  const [designerWidth, setDesignerWidth] = useState(() => parseInt(localStorage.getItem('mm_designer_width')) || 75);
+  const [designerLpr, setDesignerLpr] = useState(() => parseInt(localStorage.getItem('mm_designer_lpr')) || 1);
+  const [designerRotation, setDesignerRotation] = useState(() => parseInt(localStorage.getItem('mm_designer_rot')) || 0);
+  const [designerDpi, setDesignerDpi] = useState(() => parseInt(localStorage.getItem('mm_designer_dpi')) || 203);
+  const [designerOffset, setDesignerOffset] = useState(() => JSON.parse(localStorage.getItem('mm_designer_offset')) || { x: 0, y: 0 });
+  const [designerA4, setDesignerA4] = useState(() => JSON.parse(localStorage.getItem('mm_designer_a4')) || { cols: 3, rows: 8, gapX: 2, gapY: 0 });
+  const [designerBgImage, setDesignerBgImage] = useState(localStorage.getItem('mm_designer_bg') || null);
+  const [designerBgSettings, setDesignerBgSettings] = useState(() => {
+    const saved = localStorage.getItem('mm_designer_bg_settings');
+    return saved ? JSON.parse(saved) : { x: 0, y: 0, width: 75, height: 20 };
+  });
+
+  // --- ADVANCED (IMAGE) STATE ---
+  const [advancedFields, setAdvancedFields] = useState(() => {
+    const saved = localStorage.getItem('mm_custom_fields'); // Migrate legacy
+    return saved ? JSON.parse(saved) : [
+      { id: 'advanced_1', text: 'ADVANCED: NAME', x: 2, y: 5, size: 14, bold: true },
+    ];
+  });
+  const [advancedHeight, setAdvancedHeight] = useState(() => parseInt(localStorage.getItem('mm_custom_height')) || 25);
+  const [advancedWidth, setAdvancedWidth] = useState(() => parseInt(localStorage.getItem('mm_custom_width')) || 75);
+  const [advancedLpr, setAdvancedLpr] = useState(() => parseInt(localStorage.getItem('mm_labels_per_row')) || 1);
+  const [advancedRotation, setAdvancedRotation] = useState(() => parseInt(localStorage.getItem('mm_advanced_rot')) || 0);
+  const [advancedDpi, setAdvancedDpi] = useState(() => parseInt(localStorage.getItem('mm_advanced_dpi')) || 203);
+  const [advancedOffset, setAdvancedOffset] = useState(() => JSON.parse(localStorage.getItem('mm_advanced_offset')) || { x: 0, y: 0 });
+  const [advancedA4, setAdvancedA4] = useState(() => JSON.parse(localStorage.getItem('mm_advanced_a4')) || { cols: 3, rows: 8, gapX: 2, gapY: 0 });
+  const [advancedBgImage, setAdvancedBgImage] = useState(localStorage.getItem('mm_label_template') || null);
+  const [advancedBgSettings, setAdvancedBgSettings] = useState(() => {
+    const saved = localStorage.getItem('mm_bg_settings');
+    return saved ? JSON.parse(saved) : { x: 0, y: 0, width: 75, height: 20 };
+  });
+
+  // Active State Accessors (Standard is fixed at 2-col, 38x25mm per sticker)
+  const activeFields = labelMode === 'custom' ? designerFields : advancedFields;
+  const setActiveFields = labelMode === 'custom' ? setDesignerFields : setAdvancedFields;
+  const activeLpr = labelMode === 'standard' ? standardLpr : (labelMode === 'custom' ? designerLpr : advancedLpr);
+  const setActiveLpr = labelMode === 'standard' ? setStandardLpr : (labelMode === 'custom' ? setDesignerLpr : setAdvancedLpr);
+  const activeHeight = labelMode === 'custom' ? designerHeight : (labelMode === 'standard' ? standardHeight : advancedHeight);
+  const setActiveHeight = labelMode === 'custom' ? setDesignerHeight : (labelMode === 'standard' ? setStandardHeight : setAdvancedHeight);
+  const activeWidth = labelMode === 'custom' ? designerWidth : (labelMode === 'standard' ? standardWidth : advancedWidth);
+  const setActiveWidth = labelMode === 'custom' ? setDesignerWidth : (labelMode === 'standard' ? setStandardWidth : setAdvancedWidth);
+  const activeRotation = labelMode === 'custom' ? designerRotation : (labelMode === 'advanced' ? advancedRotation : 0);
+  const setActiveRotation = labelMode === 'custom' ? setDesignerRotation : setAdvancedRotation;
+  const activeBgImage = labelMode === 'custom' ? designerBgImage : advancedBgImage;
+  const setActiveBgImage = labelMode === 'custom' ? setDesignerBgImage : setAdvancedBgImage;
+  const activeBgSettings = labelMode === 'custom' ? designerBgSettings : advancedBgSettings;
+  const setActiveBgSettings = labelMode === 'custom' ? setDesignerBgSettings : setAdvancedBgSettings;
   
-  const [bgImage, setBgImage] = useState(localStorage.getItem('mm_label_template') || null);
+  const activeDpi = labelMode === 'custom' ? designerDpi : (labelMode === 'standard' ? standardDpi : advancedDpi);
+  const setActiveDpi = labelMode === 'custom' ? setDesignerDpi : (labelMode === 'standard' ? setStandardDpi : setAdvancedDpi);
+  const activeOffset = labelMode === 'custom' ? designerOffset : (labelMode === 'standard' ? standardOffset : advancedOffset);
+  const setActiveOffset = labelMode === 'custom' ? setDesignerOffset : (labelMode === 'standard' ? setStandardOffset : setAdvancedOffset);
+  const activeA4 = labelMode === 'custom' ? designerA4 : (labelMode === 'advanced' ? advancedA4 : { cols: 3, rows: 8, gapX: 2, gapY: 0 });
+  const setActiveA4 = labelMode === 'custom' ? setDesignerA4 : setAdvancedA4;
+
+  const [activeFieldId, setActiveFieldId] = useState(null);
   const [draggingFieldId, setDraggingFieldId] = useState(null);
+  const [resizeMode, setResizeMode] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
   // A4 Support State
   const [printTarget, setPrintTarget] = useState('pos'); // 'pos' or 'a4'
-  const [a4Settings, setA4Settings] = useState({ cols: 3, rows: 8, gapX: 2, gapY: 0 });
+  const dotsPerMm = activeDpi / 25.4;
 
   const canvasRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -44,16 +110,43 @@ const BarcodeGenerator = () => {
 
   // Persist settings
   useEffect(() => {
-    localStorage.setItem('mm_custom_fields', JSON.stringify(customFields));
-  }, [customFields]);
+    // Designer
+    localStorage.setItem('mm_designer_fields', JSON.stringify(designerFields));
+    localStorage.setItem('mm_designer_height', designerHeight);
+    localStorage.setItem('mm_designer_width', designerWidth);
+    localStorage.setItem('mm_designer_lpr', designerLpr);
+    localStorage.setItem('mm_designer_rot', designerRotation);
+    localStorage.setItem('mm_designer_dpi', designerDpi);
+    localStorage.setItem('mm_designer_offset', JSON.stringify(designerOffset));
+    localStorage.setItem('mm_designer_a4', JSON.stringify(designerA4));
+    if (designerBgImage) localStorage.setItem('mm_designer_bg', designerBgImage);
+    localStorage.setItem('mm_designer_bg_settings', JSON.stringify(designerBgSettings));
 
-  useEffect(() => {
-    localStorage.setItem('mm_custom_height', customHeight);
-  }, [customHeight]);
+    // Advanced
+    localStorage.setItem('mm_custom_fields', JSON.stringify(advancedFields));
+    localStorage.setItem('mm_custom_height', advancedHeight);
+    localStorage.setItem('mm_custom_width', advancedWidth);
+    localStorage.setItem('mm_labels_per_row', advancedLpr);
+    localStorage.setItem('mm_advanced_rot', advancedRotation);
+    localStorage.setItem('mm_advanced_dpi', advancedDpi);
+    localStorage.setItem('mm_advanced_offset', JSON.stringify(advancedOffset));
+    localStorage.setItem('mm_advanced_a4', JSON.stringify(advancedA4));
+    if (advancedBgImage) localStorage.setItem('mm_label_template', advancedBgImage);
+    localStorage.setItem('mm_bg_settings', JSON.stringify(advancedBgSettings));
 
-  useEffect(() => {
-    localStorage.setItem('mm_labels_per_row', labelsPerRow);
-  }, [labelsPerRow]);
+    // Standard
+    localStorage.setItem('mm_standard_width', standardWidth);
+    localStorage.setItem('mm_standard_height_std', standardHeight);
+    localStorage.setItem('mm_standard_lpr', standardLpr);
+    localStorage.setItem('mm_standard_bc_w', standardBarcodeWidth);
+    localStorage.setItem('mm_standard_bc_h', standardBarcodeHeight);
+    localStorage.setItem('mm_standard_name_s', standardNameSize);
+    localStorage.setItem('mm_standard_price_s', standardPriceSize);
+    localStorage.setItem('mm_standard_scale', standardScale);
+    localStorage.setItem('mm_standard_gap', standardGap);
+  }, [designerFields, designerHeight, designerWidth, designerLpr, designerRotation, designerDpi, designerOffset, designerA4, designerBgImage, designerBgSettings,
+      advancedFields, advancedHeight, advancedWidth, advancedLpr, advancedRotation, advancedDpi, advancedOffset, advancedA4, advancedBgImage, advancedBgSettings,
+      standardWidth, standardHeight, standardLpr, standardBarcodeWidth, standardBarcodeHeight, standardNameSize, standardPriceSize, standardScale, standardGap]);
 
   useEffect(() => {
     const checkStatus = async () => {
@@ -74,20 +167,20 @@ const BarcodeGenerator = () => {
       id: Date.now(), 
       text: 'NEW TEXT', 
       x: 5, 
-      y: (customFields.length * 5) + 5, 
+      y: (activeFields.length * 5) + 5, 
       size: 10, 
       bold: false 
     };
-    setCustomFields([...customFields, newField]);
+    setActiveFields([...activeFields, newField]);
     setActiveFieldId(newField.id);
   };
 
   const updateField = (id, key, val) => {
-    setCustomFields(prev => prev.map(f => f.id === id ? { ...f, [key]: val } : f));
+    setActiveFields(prev => prev.map(f => f.id === id ? { ...f, [key]: val } : f));
   };
 
   const removeField = (id) => {
-    setCustomFields(prev => prev.filter(f => f.id !== id));
+    setActiveFields(prev => prev.filter(f => f.id !== id));
     if (activeFieldId === id) setActiveFieldId(null);
   };
 
@@ -97,39 +190,84 @@ const BarcodeGenerator = () => {
       const reader = new FileReader();
       reader.onload = (re) => {
         const base64 = re.target.result;
-        setBgImage(base64);
-        localStorage.setItem('mm_label_template', base64);
+        setActiveBgImage(base64);
       };
       reader.readAsDataURL(file);
     }
   };
 
+  const rotateLabel = (e) => {
+    if (e) e.stopPropagation();
+    setActiveRotation(prev => (prev + 90) % 360);
+  };
+
   // ─── DRAG LOGIC (Fixed for Scale) ──────────────────────────────────────────
-  const handleMouseDown = (e, id) => {
+  const handleMouseDown = (e, id, mode = 'move') => {
     if (labelMode === 'standard') return;
     e.stopPropagation();
     setDraggingFieldId(id);
     setActiveFieldId(id);
-    const field = customFields.find(f => f.id === id);
-    setDragStart({ 
-      offsetX: e.clientX - (field.x * mmToPx * PREVIEW_SCALE), 
-      offsetY: e.clientY - (field.y * mmToPx * PREVIEW_SCALE) 
-    });
+    setResizeMode(mode === 'resize');
+    
+    let currentX, currentY, currentW, currentH;
+    if (id === 'background') {
+      currentX = activeBgSettings.x;
+      currentY = activeBgSettings.y;
+      currentW = activeBgSettings.width;
+      currentH = activeBgSettings.height;
+    } else {
+      const field = activeFields.find(f => f.id === id);
+      currentX = field.x;
+      currentY = field.y;
+    }
+
+    if (mode === 'resize') {
+      setDragStart({ 
+        startX: e.clientX, 
+        startY: e.clientY,
+        startW: currentW,
+        startH: currentH
+      });
+    } else {
+      setDragStart({ 
+        offsetX: e.clientX - (currentX * mmToPx * PREVIEW_SCALE), 
+        offsetY: e.clientY - (currentY * mmToPx * PREVIEW_SCALE) 
+      });
+    }
   };
 
   useEffect(() => {
     const handleGlobalMouseMove = (e) => {
       if (draggingFieldId === null) return;
+
+      if (resizeMode) {
+        const deltaX = (e.clientX - dragStart.startX) / (mmToPx * PREVIEW_SCALE);
+        const deltaY = (e.clientY - dragStart.startY) / (mmToPx * PREVIEW_SCALE);
+        
+        if (draggingFieldId === 'background') {
+          setActiveBgSettings(prev => ({
+            ...prev,
+            width: Math.max(5, dragStart.startW + deltaX),
+            height: Math.max(5, dragStart.startH + deltaY)
+          }));
+        }
+        return;
+      }
+
       const newX = (e.clientX - dragStart.offsetX) / (mmToPx * PREVIEW_SCALE);
       const newY = (e.clientY - dragStart.offsetY) / (mmToPx * PREVIEW_SCALE);
       
       // Bounds check based on labels per row
-      const maxWidthMm = labelsPerRow === 2 ? 37 : (labelMode === 'advanced' ? customWidth : 75);
-      const clampedX = Math.max(0, Math.min(newX, maxWidthMm - 2));
-      const clampedY = Math.max(0, Math.min(newY, customHeight - 2));
+      const maxWidthMm = activeLpr === 2 ? 37 : (labelMode === 'advanced' ? activeWidth : 75);
+      const clampedX = Math.max(-50, Math.min(newX, maxWidthMm + 50));
+      const clampedY = Math.max(-50, Math.min(newY, activeHeight + 50));
       
-      updateField(draggingFieldId, 'x', clampedX);
-      updateField(draggingFieldId, 'y', clampedY);
+      if (draggingFieldId === 'background') {
+        setActiveBgSettings(prev => ({ ...prev, x: newX, y: newY }));
+      } else {
+        updateField(draggingFieldId, 'x', clampedX);
+        updateField(draggingFieldId, 'y', clampedY);
+      }
     };
 
     const handleGlobalMouseUp = () => setDraggingFieldId(null);
@@ -142,7 +280,7 @@ const BarcodeGenerator = () => {
       window.removeEventListener('mousemove', handleGlobalMouseMove);
       window.removeEventListener('mouseup', handleGlobalMouseUp);
     };
-  }, [draggingFieldId, dragStart, labelsPerRow, labelMode, customWidth, customHeight]);
+  }, [draggingFieldId, dragStart, activeLpr, labelMode, activeWidth, activeHeight]);
 
   // ─── KEYBOARD NAVIGATION ──────────────────────────────────────────────────
   useEffect(() => {
@@ -157,6 +295,16 @@ const BarcodeGenerator = () => {
       let dx = 0;
       let dy = 0;
 
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (activeFieldId === 'background') {
+          setActiveBgImage(null);
+          setActiveFieldId(null);
+        } else if (activeFieldId) {
+          removeField(activeFieldId);
+        }
+        return;
+      }
+
       switch (e.key) {
         case 'ArrowLeft': dx = -step; break;
         case 'ArrowRight': dx = step; break;
@@ -167,16 +315,16 @@ const BarcodeGenerator = () => {
 
       e.preventDefault(); // Prevent page scroll
 
-      setCustomFields(prev => prev.map(f => {
+      setActiveFields(prev => prev.map(f => {
         if (f.id === activeFieldId) {
           // Calculate max bounds based on mode and target
-          const colWidthMm = (75 - (labelsPerRow - 1)) / labelsPerRow;
+          const colWidthMm = (75 - (activeLpr - 1)) / activeLpr;
           const currentLabelWidth = printTarget === 'a4' 
-            ? (labelMode === 'advanced' ? customWidth : 75)
-            : (labelsPerRow === 1 ? (labelMode === 'advanced' ? customWidth : 75) : colWidthMm);
+            ? (labelMode === 'advanced' ? activeWidth : 75)
+            : (activeLpr === 1 ? (labelMode === 'advanced' ? activeWidth : 75) : colWidthMm);
 
           const newX = Math.max(0, Math.min(f.x + dx, currentLabelWidth - 2));
-          const newY = Math.max(0, Math.min(f.y + dy, customHeight - 2));
+          const newY = Math.max(0, Math.min(f.y + dy, activeHeight - 2));
           
           return { ...f, x: newX, y: newY };
         }
@@ -186,7 +334,7 @@ const BarcodeGenerator = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeFieldId, labelMode, labelsPerRow, customWidth, customHeight, printTarget]);
+  }, [activeFieldId, labelMode, activeLpr, activeWidth, activeHeight, printTarget, activeDpi, activeOffset, activeA4]);
 
   const handlePrint = async () => {
     if (isPrinting) return;
@@ -195,12 +343,11 @@ const BarcodeGenerator = () => {
     try {
       const canvas = canvasRef.current;
       const ctx = canvas.getContext('2d');
-      const scale = 2; // Optimal balance for quality and payload size (Reduced from 3)
+      const scale = 1; // 1:1 pixel to dot mapping for exact physical dimensions
       
-      const dotsPerMm = 8;
-      const totalWidthMm = labelMode === 'advanced' ? customWidth : 75;
+      const totalWidthMm = activeWidth;
       const widthPx = Math.floor(totalWidthMm * dotsPerMm); 
-      const heightPx = Math.floor(customHeight * dotsPerMm);
+      const heightPx = Math.floor(activeHeight * dotsPerMm);
       
       canvas.width = widthPx * scale;
       canvas.height = heightPx * scale;
@@ -208,6 +355,9 @@ const BarcodeGenerator = () => {
 
       ctx.fillStyle = 'white';
       ctx.fillRect(0, 0, widthPx, heightPx);
+
+      const globalOffsetX = activeOffset.x * dotsPerMm;
+      const globalOffsetY = activeOffset.y * dotsPerMm;
 
       if (labelMode === 'standard') {
         const svgElement = document.querySelector('.printable-sticker svg');
@@ -219,49 +369,87 @@ const BarcodeGenerator = () => {
         await new Promise((res, rej) => { barcodeImg.onload = res; barcodeImg.onerror = rej; barcodeImg.src = svgUrl; });
 
         const drawLabel = (x) => {
-          const sw = 37 * dotsPerMm; const sh = 20 * dotsPerMm;
-          const safetyY = 8; // 1mm safety buffer
+          const sw = ((activeWidth - (activeLpr - 1)) / activeLpr) * dotsPerMm; 
+          const sh = activeHeight * dotsPerMm;
+          const p = 6 * (dotsPerMm / mmToPx); 
+
+          ctx.save();
+          ctx.translate(x + sw/2 + globalOffsetX, sh/2 + globalOffsetY);
+          ctx.rotate((activeRotation * Math.PI) / 180);
+          ctx.translate(-(x + sw/2 + globalOffsetX), -(sh/2 + globalOffsetY));
+
           ctx.fillStyle = 'black'; ctx.textAlign = 'center';
-          ctx.font = 'bold 15px Arial';
-          ctx.fillText(formatItemName(productName.toUpperCase()), x + sw/2, 24 + safetyY);
-          const bW = 34 * dotsPerMm; const bH = 11 * dotsPerMm;
-          ctx.drawImage(barcodeImg, x + (sw - bW)/2, 34 + safetyY, bW, bH);
-          ctx.font = 'bold 20px Arial';
-          ctx.fillText(`Rs ${price}`, x + sw/2, sh - 8 + safetyY);
+          const nSize = standardNameSize * standardScale;
+          const pSize = standardPriceSize * standardScale;
+          const bH = standardBarcodeHeight * standardScale * (dotsPerMm / mmToPx);
+          const bW = (activeWidth / activeLpr) * 0.8 * standardScale * dotsPerMm;
+          const gapPx = standardGap * standardScale * (dotsPerMm / mmToPx);
+
+          // Name
+          ctx.font = `bold ${nSize * (dotsPerMm/mmToPx)}px Arial`;
+          const nameY = p + (nSize * dotsPerMm / mmToPx) + globalOffsetY;
+          ctx.fillText(formatItemName(productName.toUpperCase()), x + sw/2 + globalOffsetX, nameY);
+          
+          // Barcode
+          const bcY = nameY + gapPx;
+          ctx.drawImage(barcodeImg, x + (sw - bW)/2 + globalOffsetX, bcY, bW, bH);
+          
+          // Price
+          const priceY = bcY + bH + gapPx + (pSize * dotsPerMm / mmToPx) / 2;
+          ctx.font = `bold ${pSize * (dotsPerMm/mmToPx)}px Arial`;
+          ctx.fillText(`Rs ${price}`, x + sw/2 + globalOffsetX, priceY);
+          ctx.restore();
         }
-        drawLabel(0);
-        drawLabel(38 * dotsPerMm);
+        for (let i = 0; i < activeLpr; i++) {
+          const offsetX = i * (((activeWidth - (activeLpr - 1)) / activeLpr) + 1) * dotsPerMm;
+          drawLabel(offsetX);
+        }
         URL.revokeObjectURL(svgUrl);
       } else {
         // Custom & Advanced Mode
-        const colWidthMm = (75 - (labelsPerRow - 1)) / labelsPerRow;
+        const colWidthMm = (75 - (activeLpr - 1)) / activeLpr;
         const colWidthPx = colWidthMm * dotsPerMm;
 
         // Load background if needed
         let bgImgReady = null;
-        if (labelMode === 'advanced' && bgImage) {
+        if (activeBgImage) {
           bgImgReady = new Image();
-          await new Promise((res) => { bgImgReady.onload = res; bgImgReady.src = bgImage; });
+          await new Promise((res) => { bgImgReady.onload = res; bgImgReady.src = activeBgImage; });
         }
 
         const drawFieldsAt = (offsetX) => {
-          const safetyY = 1.0 * dotsPerMm; // 1mm safety margin for physical printers
+          const ch = activeHeight * dotsPerMm;
+          
+          ctx.save();
+          // Rotate around the center of the label slot
+          ctx.translate(offsetX + colWidthPx/2, ch/2);
+          ctx.rotate((activeRotation * Math.PI) / 180);
+          ctx.translate(-(offsetX + colWidthPx/2), -(ch/2));
+
           // 1. Draw background first
           if (bgImgReady) {
-            ctx.drawImage(bgImgReady, offsetX, safetyY, colWidthPx, heightPx);
+            ctx.drawImage(
+              bgImgReady, 
+              (activeBgSettings.x * dotsPerMm) + offsetX, 
+              (activeBgSettings.y * dotsPerMm), 
+              activeBgSettings.width * dotsPerMm, 
+              activeBgSettings.height * dotsPerMm
+            );
           }
 
           // 2. Overlay text
           ctx.fillStyle = 'black';
           ctx.textAlign = 'left';
           ctx.textBaseline = 'top';
-          customFields.forEach(f => {
-            ctx.font = `${f.bold ? 'bold' : ''} ${f.size * 1.2}pt Arial`;
-            ctx.fillText(f.text, (f.x * dotsPerMm) + offsetX, (f.y * dotsPerMm) + safetyY);
+          activeFields.forEach(f => {
+            const dotSize = (f.size * dotsPerMm) / mmToPx;
+            ctx.font = `${f.bold ? 'bold' : ''} ${dotSize}px Arial`;
+            ctx.fillText(f.text, (f.x * dotsPerMm) + offsetX + globalOffsetX, (f.y * dotsPerMm) + globalOffsetY);
           });
+          ctx.restore();
         };
 
-        for (let i = 0; i < labelsPerRow; i++) {
+        for (let i = 0; i < activeLpr; i++) {
           const offsetX = i * (colWidthMm + 1) * dotsPerMm;
           drawFieldsAt(offsetX);
         }
@@ -270,18 +458,17 @@ const BarcodeGenerator = () => {
       const imageData = canvas.toDataURL('image/jpeg', 0.9);
 
       if (printTarget === 'pos') {
-        const numRows = Math.ceil(copies / labelsPerRow);
+        const numRows = Math.ceil(copies / activeLpr);
         const result = await printLabels([imageData], numRows);
         if (!result.success) alert('Print server error: ' + result.error);
       } else {
         // A4 Printing via Browser
         const printWindow = window.open('', '_blank');
-        const labelsCount = a4Settings.cols * a4Settings.rows;
         
         const labelHtml = `
           <div style="
-            width: ${(labelMode === 'advanced' ? customWidth : 75)}mm; 
-            height: ${customHeight}mm; 
+            width: ${activeWidth}mm; 
+            height: ${activeHeight}mm; 
             position: relative; 
             overflow: hidden;
             background: white;
@@ -468,6 +655,7 @@ const BarcodeGenerator = () => {
           border: 1px solid transparent;
           border-radius: 6px;
           transition: background 0.2s, border-color 0.2s;
+          z-index: 10;
         }
 
         .drag-field:hover {
@@ -649,6 +837,87 @@ const BarcodeGenerator = () => {
                     <input type="number" value={copies} onChange={e => setCopies(e.target.value)} min="1" />
                   </div>
                 </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                  <div className="input-group">
+                    <label><Maximize2 size={14} /> Global Scale</label>
+                    <input 
+                      type="range" min="0.5" max="2.0" step="0.05"
+                      value={standardScale} 
+                      onChange={e => setStandardScale(parseFloat(e.target.value))} 
+                      style={{ width: '100%', height: '6px', appearance: 'none', background: '#e2e8f0', borderRadius: '3px', cursor: 'pointer' }}
+                    />
+                  </div>
+                  <div className="input-group">
+                    <label>Element Gap</label>
+                    <input 
+                      type="range" min="0" max="20" step="1"
+                      value={standardGap} 
+                      onChange={e => setStandardGap(parseInt(e.target.value))} 
+                      style={{ width: '100%', height: '6px', appearance: 'none', background: '#e2e8f0', borderRadius: '3px', cursor: 'pointer' }}
+                    />
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '1rem', borderTop: '1px solid #f1f5f9', paddingTop: '1rem' }}>
+                  <div className="input-group">
+                    <label><Maximize2 size={14} /> Width (mm)</label>
+                    <input 
+                      type="number" 
+                      value={standardWidth} 
+                      onChange={e => setStandardWidth(parseInt(e.target.value) || 75)} 
+                    />
+                  </div>
+                  <div className="input-group">
+                    <label>Height (mm)</label>
+                    <input 
+                      type="number" 
+                      value={standardHeight} 
+                      onChange={e => setStandardHeight(parseInt(e.target.value) || 25)} 
+                    />
+                  </div>
+                  <div className="input-group">
+                    <label>Labels / Row</label>
+                    <input 
+                      type="number" 
+                      min="1" max="6" 
+                      value={standardLpr} 
+                      onChange={e => setStandardLpr(parseInt(e.target.value) || 1)} 
+                    />
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '1rem', borderTop: '1px solid #f1f5f9', paddingTop: '1rem' }}>
+                  <div className="input-group">
+                    <label>Name Size</label>
+                    <input 
+                      type="number" min="4" max="50"
+                      value={standardNameSize} 
+                      onChange={e => setStandardNameSize(parseInt(e.target.value) || 10)} 
+                    />
+                  </div>
+                  <div className="input-group">
+                    <label>Price Size</label>
+                    <input 
+                      type="number" min="4" max="50"
+                      value={standardPriceSize} 
+                      onChange={e => setStandardPriceSize(parseInt(e.target.value) || 12)} 
+                    />
+                  </div>
+                  <div className="input-group">
+                    <label>Barcode Width</label>
+                    <input 
+                      type="number" step="0.1" min="0.1" max="5.0"
+                      value={standardBarcodeWidth} 
+                      onChange={e => setStandardBarcodeWidth(parseFloat(e.target.value) || 1.0)} 
+                    />
+                  </div>
+                  <div className="input-group">
+                    <label>Barcode Height</label>
+                    <input 
+                      type="number" min="5" max="100"
+                      value={standardBarcodeHeight} 
+                      onChange={e => setStandardBarcodeHeight(parseInt(e.target.value) || 30)} 
+                    />
+                  </div>
+                </div>
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -660,8 +929,8 @@ const BarcodeGenerator = () => {
                       <input 
                         type="number" 
                         min="1" max="10" 
-                        value={labelsPerRow} 
-                        onChange={e => setLabelsPerRow(Math.max(1, parseInt(e.target.value) || 1))} 
+                        value={activeLpr} 
+                        onChange={e => setActiveLpr(Math.max(1, parseInt(e.target.value) || 1))} 
                       />
                     </div>
                     <div className="input-group">
@@ -669,13 +938,66 @@ const BarcodeGenerator = () => {
                       <input 
                         type="number" 
                         min="5" max="150" 
-                        value={customHeight} 
-                        onChange={e => setCustomHeight(parseInt(e.target.value) || 20)} 
+                        value={activeHeight} 
+                        onChange={e => setActiveHeight(parseInt(e.target.value) || 20)} 
                       />
+                    </div>
+                    <div className="input-group">
+                      <label>Rotation</label>
+                      <button 
+                        onClick={(e) => { e.preventDefault(); rotateLabel(); }}
+                        className="mode-btn"
+                        style={{ 
+                          background: 'white', border: '1px solid #cbd5e1', width: '100%', 
+                          justifyContent: 'center', color: '#1e293b', padding: '0.75rem' 
+                        }}
+                      >
+                        <RotateCw size={16} /> {activeRotation}°
+                      </button>
+                    </div>
+                    <div className="input-group">
+                      <label>Printer DPI</label>
+                      <select 
+                        value={activeDpi} 
+                        onChange={e => setActiveDpi(parseInt(e.target.value))}
+                        style={{ padding: '0.75rem', borderRadius: '10px', border: '1px solid #cbd5e1', width: '100%' }}
+                      >
+                        <option value={203}>203 DPI (Standard)</option>
+                        <option value={300}>300 DPI (High Res)</option>
+                      </select>
+                    </div>
+                    <div className="input-group">
+                      <label>Offset X/Y (mm)</label>
+                      <div style={{ display: 'flex', gap: '5px' }}>
+                        <input 
+                          type="number" step="0.5" value={activeOffset.x} 
+                          onChange={e => setActiveOffset(prev => ({ ...prev, x: parseFloat(e.target.value) }))}
+                          style={{ padding: '0.5rem', borderRadius: '8px', border: '1px solid #cbd5e1', width: '50%' }}
+                          placeholder="X"
+                        />
+                        <input 
+                          type="number" step="0.5" value={activeOffset.y} 
+                          onChange={e => setActiveOffset(prev => ({ ...prev, y: parseFloat(e.target.value) }))}
+                          style={{ padding: '0.5rem', borderRadius: '8px', border: '1px solid #cbd5e1', width: '50%' }}
+                          placeholder="Y"
+                        />
+                      </div>
                     </div>
                   </div>
 
                   {labelMode === 'advanced' && (
+                    <div className="input-group" style={{ marginTop: '1rem' }}>
+                      <label>Canvas Width (mm)</label>
+                      <input 
+                        type="number" 
+                        min="5" max="300" 
+                        value={activeWidth} 
+                        onChange={e => setActiveWidth(parseInt(e.target.value) || 75)} 
+                      />
+                    </div>
+                  )}
+
+                  {(labelMode === 'advanced' || labelMode === 'custom') && (
                     <button 
                       onClick={() => fileInputRef.current.click()}
                       style={{ 
@@ -684,8 +1006,57 @@ const BarcodeGenerator = () => {
                         cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' 
                       }}
                     >
-                      <ImageIcon size={18} /> {bgImage ? 'Change Template' : 'Upload Template'}
+                      <ImageIcon size={18} /> {activeBgImage ? 'Change Template' : 'Upload Template'}
                     </button>
+                  )}
+
+                  {activeBgImage && (
+                    <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', padding: '1rem', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <h4 style={{ fontSize: '0.75rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase' }}>Image Controls</h4>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button 
+                            onClick={() => setActiveBgSettings({ x: 0, y: 0, width: activeWidth, height: activeHeight })}
+                            style={{ fontSize: '0.7rem', color: '#3b82f6', background: 'none', border: 'none', fontWeight: 700, cursor: 'pointer' }}
+                          >
+                            Fit
+                          </button>
+                          <button 
+                            onClick={() => {
+                              setActiveBgImage(null);
+                              setActiveFieldId(null);
+                            }}
+                            style={{ fontSize: '0.7rem', color: '#ef4444', background: 'none', border: 'none', fontWeight: 700, cursor: 'pointer' }}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                        <div className="input-group">
+                          <label>Img Width</label>
+                          <input 
+                            type="number" 
+                            value={activeBgSettings.width} 
+                            onChange={e => {
+                              const val = parseFloat(e.target.value);
+                              if (!isNaN(val)) setActiveBgSettings(prev => ({ ...prev, width: val }));
+                            }} 
+                          />
+                        </div>
+                        <div className="input-group">
+                          <label>Img Height</label>
+                          <input 
+                            type="number" 
+                            value={activeBgSettings.height} 
+                            onChange={e => {
+                              const val = parseFloat(e.target.value);
+                              if (!isNaN(val)) setActiveBgSettings(prev => ({ ...prev, height: val }));
+                            }} 
+                          />
+                        </div>
+                      </div>
+                    </div>
                   )}
 
                   {printTarget === 'a4' && (
@@ -696,11 +1067,11 @@ const BarcodeGenerator = () => {
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                         <div className="input-group">
                           <label>Columns</label>
-                          <input type="number" value={a4Settings.cols} onChange={e => setA4Settings({...a4Settings, cols: parseInt(e.target.value) || 1})} />
+                          <input type="number" value={activeA4.cols} onChange={e => setActiveA4({...activeA4, cols: parseInt(e.target.value) || 1})} />
                         </div>
                         <div className="input-group">
                           <label>Gap (mm)</label>
-                          <input type="number" value={a4Settings.gapX} onChange={e => setA4Settings({...a4Settings, gapX: parseInt(e.target.value) || 0})} />
+                          <input type="number" value={activeA4.gapX} onChange={e => setActiveA4({...activeA4, gapX: parseInt(e.target.value) || 0})} />
                         </div>
                       </div>
                     </div>
@@ -716,7 +1087,7 @@ const BarcodeGenerator = () => {
                   </div>
                   
                   <div style={{ maxHeight: '350px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.75rem', padding: '2px' }}>
-                    {customFields.map(f => (
+                    {activeFields.map(f => (
                       <div 
                         key={f.id} 
                         onClick={() => setActiveFieldId(f.id)} 
@@ -763,173 +1134,302 @@ const BarcodeGenerator = () => {
           </section>
 
           {/* RIGHT: PREVIEW */}
-          <section>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <div style={{ width: '12px', height: '12px', borderRadius: '3px', background: printTarget === 'a4' ? '#10b981' : '#3b82f6' }} />
-                  <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    {printTarget === 'a4' ? 'A4 Sheet Preview' : `Live Roll Preview (${labelsPerRow} Col)`}
-                  </span>
-                </div>
-                <div style={{ background: '#dbeafe', color: '#1e40af', padding: '0.4rem 0.8rem', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 900, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Maximize2 size={14} /> {(labelMode === 'advanced' ? customWidth : 75)}mm × {(labelMode === 'standard' ? 20 : customHeight)}mm
-                </div>
-            </div>
-            
-            <div className="studio-viewport" style={{ 
-              background: printTarget === 'a4' ? '#94a3b8' : undefined,
-              boxShadow: printTarget === 'a4' ? 'inset 0 0 100px rgba(0,0,0,0.2)' : undefined,
-              overflow: 'auto',
-              padding: printTarget === 'a4' ? '2rem' : '4rem'
-            }}>
-              {printTarget === 'a4' ? (
-                <div style={{ 
-                  width: '210mm', 
-                  minHeight: '297mm', 
-                  background: 'white', 
-                  padding: '10mm', 
-                  boxShadow: '0 40px 100px rgba(0,0,0,0.4)',
-                  display: 'grid',
-                  gridTemplateColumns: `repeat(${a4Settings.cols}, 1fr)`,
-                  gap: `${a4Settings.gapY}mm ${a4Settings.gapX}mm`,
-                  transform: 'scale(0.8)', // Increased scale for better visibility
-                  transformOrigin: 'top center',
-                  marginBottom: '-60mm', // Adjusted offset
-                  margin: '0 auto'
-                }}>
-                   {Array.from({ length: a4Settings.cols * 15 }).map((_, idx) => (
+          <section style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+            {/* TOP: LABEL EDITOR */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={{ width: '12px', height: '12px', borderRadius: '3px', background: '#3b82f6' }} />
+                    <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      Label Designer (Single)
+                    </span>
+                  </div>
+                  <div style={{ background: '#dbeafe', color: '#1e40af', padding: '0.4rem 0.8rem', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 900, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Maximize2 size={14} /> {activeWidth}mm × {activeHeight}mm
+                  </div>
+              </div>
+
+              <div className="studio-viewport" style={{ minHeight: '400px' }}>
+                <div 
+                  className="designer-canvas" 
+                  style={{ 
+                    width: activeWidth * mmToPx, 
+                    height: activeHeight * mmToPx,
+                    background: labelMode === 'standard' ? '#f8fafc' : 'white', 
+                    transform: `scale(1.5) rotate(${activeRotation}deg)`,
+                    transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                    display: labelMode === 'standard' ? 'flex' : 'block',
+                    gap: '1px',
+                    overflow: 'hidden'
+                  }}
+                  onMouseDown={labelMode === 'advanced' || labelMode === 'custom' ? (e) => setActiveFieldId(null) : undefined}
+                >
+                  {activeBgImage && (
                     <div 
-                      key={idx}
                       style={{ 
-                        width: (labelMode === 'advanced' ? customWidth : 75) * mmToPx, 
-                        height: customHeight * mmToPx,
-                        background: (labelMode === 'advanced' && bgImage) ? `url(${bgImage})` : 'white', 
-                        backgroundSize: '100% 100%',
-                        position: 'relative', 
-                        overflow: 'hidden',
-                        border: idx === 0 ? '1px dashed #3b82f6' : '1px solid #f1f5f9'
+                        position: 'absolute',
+                        left: activeBgSettings.x * mmToPx,
+                        top: activeBgSettings.y * mmToPx,
+                        width: activeBgSettings.width * mmToPx,
+                        height: activeBgSettings.height * mmToPx,
+                        zIndex: 1,
+                        border: activeFieldId === 'background' ? '2px solid #3b82f6' : 'none',
                       }}
+                      onMouseDown={(e) => handleMouseDown(e, 'background')}
                     >
-                      {customFields.map(f => (
+                      <img 
+                        src={activeBgImage} 
+                        style={{ 
+                          width: '100%',
+                          height: '100%',
+                          cursor: 'move',
+                          userSelect: 'none',
+                          display: 'block'
+                        }}
+                        alt="Template"
+                      />
+                      {activeFieldId === 'background' && (
                         <div 
-                          key={f.id} 
-                          className={`drag-field ${activeFieldId === f.id ? 'active' : ''}`} 
-                          onMouseDown={idx === 0 ? (e) => handleMouseDown(e, f.id) : undefined} 
-                          style={{ 
-                            left: f.x * mmToPx, 
-                            top: f.y * mmToPx, 
-                            fontSize: `${f.size}px`, 
-                            fontWeight: f.bold ? 700 : 400,
-                            pointerEvents: idx === 0 ? 'auto' : 'none',
-                            opacity: idx === 0 ? 1 : 0.3
+                          onMouseDown={(e) => handleMouseDown(e, 'background', 'resize')}
+                          style={{
+                            position: 'absolute',
+                            right: -6,
+                            bottom: -6,
+                            width: 12,
+                            height: 12,
+                            background: '#3b82f6',
+                            borderRadius: '50%',
+                            cursor: 'nwse-resize',
+                            border: '2px solid white',
+                            boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+                            zIndex: 10
                           }}
-                        >
-                          {f.text}
-                        </div>
-                      ))}
-                      {idx === 0 && (
-                         <div style={{ position: 'absolute', bottom: 4, right: 4, fontSize: '7px', color: 'white', fontWeight: 900, background: '#3b82f6', padding: '2px 6px', borderRadius: '4px', textTransform: 'uppercase' }}>Editor</div>
+                        />
                       )}
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <>
+                  )}
                   {labelMode === 'standard' ? (
-                    <div style={{ 
-                      width: 75 * mmToPx, 
-                      height: 20 * mmToPx, 
-                      background: 'white', 
-                      display: 'grid', 
-                      gridTemplateColumns: '1fr 1px 1fr', 
-                      boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
-                      transform: 'scale(1.5)',
-                      borderRadius: '2px',
-                      overflow: 'hidden'
-                    }}>
-                      {[0, 1].map(i => (
-                        <React.Fragment key={i}>
-                          {i === 1 && <div style={{ background: '#f1f5f9' }} />}
-                          <div className="printable-sticker" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between', padding: '6px' }}>
-                            <div style={{ fontSize: '7px', fontWeight: 800, color: '#1e293b', textAlign: 'center' }}>{formatItemName(productName.toUpperCase())}</div>
-                            <div style={{ transform: 'scale(0.7)' }}><Barcode value={barcodeValue || 'VOID'} width={1.2} height={25} fontSize={10} margin={0} /></div>
-                            <div style={{ fontSize: '9px', fontWeight: 900, color: '#1e293b' }}>Rs {price}</div>
+                    <>
+                      {Array.from({ length: activeLpr }).map((_, i) => (
+                        <div 
+                          key={i}
+                          className="printable-sticker" 
+                          style={{ 
+                            background: 'white', 
+                            width: `${100 / activeLpr}%`, 
+                            display: 'flex', 
+                            flexDirection: 'column', 
+                            alignItems: 'center', 
+                            justifyContent: 'flex-start', 
+                            padding: '6px', 
+                            height: '100%', 
+                            borderRight: i < activeLpr - 1 ? '1px dashed #cbd5e1' : 'none',
+                            gap: `${standardGap * standardScale}px`
+                          }}
+                        >
+                          <div style={{ fontSize: `${standardNameSize * standardScale}px`, fontWeight: 800, color: '#1e293b', textAlign: 'center' }}>{formatItemName(productName.toUpperCase())}</div>
+                          <div style={{ transform: `scale(${standardBarcodeWidth * standardScale})`, transformOrigin: 'top center' }}><Barcode value={barcodeValue || 'VOID'} width={1.0} height={standardBarcodeHeight * standardScale} fontSize={10} margin={0} /></div>
+                          <div style={{ fontSize: `${standardPriceSize * standardScale}px`, fontWeight: 900, color: '#1e293b' }}>Rs {price}</div>
+                        </div>
+                      ))}
+                    </>
+                    ) : (
+                      <>
+                        {activeFields.map(f => (
+                          <div 
+                            key={f.id} 
+                            className={`drag-field ${activeFieldId === f.id ? 'active' : ''}`} 
+                            onMouseDown={(e) => handleMouseDown(e, f.id)} 
+                            style={{ 
+                              left: f.x * mmToPx, 
+                              top: f.y * mmToPx, 
+                              fontSize: `${f.size}px`, 
+                              fontWeight: f.bold ? 700 : 400,
+                              fontFamily: 'Arial, sans-serif'
+                            }}
+                          >
+                            {f.text}
                           </div>
-                        </React.Fragment>
+                        ))}
+                      </>
+                    )}
+                </div>
+              </div>
+            </div>
+
+            {/* BOTTOM: PRINT LAYOUT PREVIEW */}
+            <div style={{ animation: 'fadeIn 0.5s ease-out' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{ width: '12px', height: '12px', borderRadius: '3px', background: printTarget === 'a4' ? '#10b981' : '#f97316' }} />
+                      <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        {printTarget === 'a4' ? 'A4 Layout Preview' : `Live Roll Preview (${activeLpr} Col)`}
+                      </span>
+                    </div>
+                    <div style={{ background: '#ffedd5', color: '#9a3412', padding: '0.4rem 0.8rem', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 900, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      {printTarget === 'pos' ? `${copies} Labels Total` : 'A4 Grid'}
+                    </div>
+                </div>
+
+                <div className="studio-viewport" style={{ 
+                  background: printTarget === 'a4' ? '#94a3b8' : undefined,
+                  boxShadow: printTarget === 'a4' ? 'inset 0 0 100px rgba(0,0,0,0.2)' : undefined,
+                  overflow: 'auto',
+                  padding: printTarget === 'a4' ? '2rem' : '3rem',
+                  minHeight: '300px'
+                }}>
+                  {printTarget === 'a4' ? (
+                    <div style={{ 
+                      width: '210mm', 
+                      minHeight: '297mm', 
+                      background: 'white', 
+                      padding: '10mm', 
+                      boxShadow: '0 40px 100px rgba(0,0,0,0.4)',
+                      display: 'grid',
+                      gridTemplateColumns: `repeat(${activeA4.cols}, 1fr)`,
+                      gap: `${activeA4.gapY}mm ${activeA4.gapX}mm`,
+                      transform: 'scale(0.7)',
+                      transformOrigin: 'top center',
+                      margin: '0 auto',
+                      marginBottom: '-80mm'
+                    }}>
+                      {Array.from({ length: Math.min(60, copies) }).map((_, idx) => (
+                        <div 
+                          key={idx}
+                          style={{ 
+                            width: activeWidth * mmToPx, 
+                            height: (labelMode === 'standard' ? 20 : activeHeight) * mmToPx,
+                            background: 'white', 
+                            position: 'relative', 
+                            overflow: 'hidden',
+                            border: '1px solid #f1f5f9',
+                            transform: `rotate(${activeRotation}deg)`,
+                            transition: 'transform 0.3s ease'
+                          }}
+                        >
+                          {activeBgImage && (
+                            <img 
+                              src={activeBgImage} 
+                              style={{ 
+                                position: 'absolute',
+                                left: activeBgSettings.x * mmToPx,
+                                top: activeBgSettings.y * mmToPx,
+                                width: activeBgSettings.width * mmToPx,
+                                height: activeBgSettings.height * mmToPx,
+                              }}
+                              alt="Template"
+                            />
+                          )}
+                          {labelMode === 'standard' ? (
+                            <div className="printable-sticker" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between', padding: '6px', height: '100%' }}>
+                              <div style={{ fontSize: `${standardNameSize * standardScale}px`, fontWeight: 800, color: '#1e293b', textAlign: 'center' }}>{formatItemName(productName.toUpperCase())}</div>
+                              <div style={{ transform: `scale(${standardBarcodeWidth * standardScale})` }}><Barcode value={barcodeValue || 'VOID'} width={1.0} height={standardBarcodeHeight * standardScale} fontSize={10} margin={0} /></div>
+                              <div style={{ fontSize: `${standardPriceSize * standardScale}px`, fontWeight: 900, color: '#1e293b' }}>Rs {price}</div>
+                            </div>
+                          ) : (
+                            activeFields.map(f => (
+                              <div 
+                                key={f.id} 
+                                className="drag-field" 
+                                style={{ 
+                                  left: f.x * mmToPx, 
+                                  top: f.y * mmToPx, 
+                                  fontSize: `${f.size}px`, 
+                                  fontWeight: f.bold ? 700 : 400,
+                                  fontFamily: 'Arial, sans-serif',
+                                  pointerEvents: 'none'
+                                }}
+                              >
+                                {f.text}
+                              </div>
+                            ))
+                          )}
+                        </div>
                       ))}
                     </div>
                   ) : (
                     <div 
-                        className="designer-canvas" 
-                        style={{ 
-                            width: (labelMode === 'advanced' ? customWidth : 75) * mmToPx, 
-                            height: customHeight * mmToPx,
-                            display: 'grid',
-                            gridTemplateColumns: `repeat(${labelsPerRow}, 1fr)`,
-                            gap: '0.5mm',
-                            background: '#e2e8f0',
-                            transform: 'scale(1.5)',
-                        }}
+                      className="designer-canvas" 
+                      style={{ 
+                        width: activeWidth * mmToPx, 
+                        height: activeHeight * mmToPx * Math.ceil(copies / activeLpr),
+                        display: 'grid',
+                        gridTemplateColumns: `repeat(${activeLpr}, 1fr)`,
+                        gap: '1px',
+                        background: '#e2e8f0',
+                        transform: 'scale(1.2)',
+                        transformOrigin: 'top center'
+                      }}
                     >
-                      {Array.from({ length: labelsPerRow }).map((_, idx) => (
+                      {Array.from({ length: copies }).map((_, idx) => (
                         <div 
                           key={idx}
                           style={{ 
-                            background: (labelMode === 'advanced' && bgImage) ? `url(${bgImage})` : 'white', 
-                            backgroundSize: '100% 100%',
+                            background: 'white', 
                             position: 'relative', 
-                            height: '100%', 
+                            width: (activeWidth - (activeLpr - 1)) / activeLpr * mmToPx,
+                            height: activeHeight * mmToPx, 
                             overflow: 'hidden',
-                            border: idx === 0 ? '1px dashed #3b82f6' : 'none'
+                            borderRight: '1px solid #f1f5f9',
+                            transform: `rotate(${activeRotation}deg)`,
+                            transition: 'transform 0.3s ease'
                           }}
                         >
-                          {customFields.map(f => (
-                            <div 
-                              key={f.id} 
-                              className={`drag-field ${activeFieldId === f.id ? 'active' : ''}`} 
-                              onMouseDown={idx === 0 ? (e) => handleMouseDown(e, f.id) : undefined} 
+                          {activeBgImage && (
+                            <img 
+                              src={activeBgImage} 
                               style={{ 
-                                left: f.x * mmToPx, 
-                                top: f.y * mmToPx, 
-                                fontSize: `${f.size}px`, 
-                                fontWeight: f.bold ? 700 : 400,
-                                pointerEvents: idx === 0 ? 'auto' : 'none',
-                                opacity: idx === 0 ? 1 : 0.4
+                                position: 'absolute',
+                                left: activeBgSettings.x * mmToPx,
+                                top: activeBgSettings.y * mmToPx,
+                                width: activeBgSettings.width * mmToPx,
+                                height: activeBgSettings.height * mmToPx,
                               }}
-                            >
-                              {f.text}
+                              alt="Template"
+                            />
+                          )}
+                          {labelMode === 'standard' ? (
+                            <div className="printable-sticker" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', padding: '6px', height: '100%', gap: `${standardGap * standardScale}px` }}>
+                              <div style={{ fontSize: `${standardNameSize * standardScale}px`, fontWeight: 800, color: '#1e293b', textAlign: 'center' }}>{formatItemName(productName.toUpperCase())}</div>
+                              <div style={{ transform: `scale(${standardBarcodeWidth * standardScale})`, transformOrigin: 'top center' }}><Barcode value={barcodeValue || 'VOID'} width={1.0} height={standardBarcodeHeight * standardScale} fontSize={10} margin={0} /></div>
+                              <div style={{ fontSize: `${standardPriceSize * standardScale}px`, fontWeight: 900, color: '#1e293b' }}>Rs {price}</div>
                             </div>
-                          ))}
-                          {idx === 0 && labelsPerRow > 1 && (
-                            <div style={{ position: 'absolute', bottom: 4, right: 4, fontSize: '7px', color: 'white', fontWeight: 900, background: '#3b82f6', padding: '2px 6px', borderRadius: '4px', textTransform: 'uppercase' }}>Editor</div>
+                          ) : (
+                            activeFields.map(f => (
+                              <div 
+                                key={f.id} 
+                                className="drag-field" 
+                                style={{ 
+                                  left: f.x * mmToPx, 
+                                  top: f.y * mmToPx, 
+                                  fontSize: `${f.size}px`, 
+                                  fontWeight: f.bold ? 700 : 400,
+                                  fontFamily: 'Arial, sans-serif',
+                                  pointerEvents: 'none'
+                                }}
+                              >
+                                {f.text}
+                              </div>
+                            ))
                           )}
                         </div>
                       ))}
                     </div>
                   )}
-                </>
-              )}
-            </div>
-            
-            <div style={{ marginTop: '2rem', display: 'flex', gap: '1.5rem' }}>
-              <div className="glass-panel" style={{ flex: 1, padding: '1.25rem', display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
-                <div style={{ background: '#eff6ff', color: '#3b82f6', padding: '0.75rem', borderRadius: '12px' }}>
-                  <Sparkles size={20} />
-                </div>
-                <div>
-                  <h4 style={{ fontSize: '0.85rem', fontWeight: 800, color: '#1e293b', marginBottom: '0.4rem' }}>Designer Tip</h4>
-                  <p style={{ fontSize: '0.8rem', color: '#64748b', lineHeight: 1.6 }}>
-                    {labelMode === 'advanced' 
-                      ? "Upload your high-res template. Changes to the first column are mirrored instantly across the entire roll width."
-                      : "The preview represents your 75mm thermal roll. Adjust columns to match your physical sticker layout."}
-                  </p>
-                </div>
               </div>
             </div>
           </section>
+            
         </div>
       </div>
       <canvas ref={canvasRef} style={{ display: 'none' }} />
+      <input 
+        type="file" 
+        ref={fileInputRef} 
+        onChange={handleImageUpload} 
+        style={{ display: 'none' }} 
+        accept="image/*"
+      />
     </div>
   );
 };

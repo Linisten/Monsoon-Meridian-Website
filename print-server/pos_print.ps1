@@ -6,9 +6,10 @@ $d = Get-Content $jsonPath | ConvertFrom-Json
 function Logo([string]$path) {
     if (-not (Test-Path $path)) { Write-Host "Logo not found"; return [byte[]]@() }
     $img = [System.Drawing.Image]::FromFile($path)
-    # Target bit-image width (multiples of 8)
-    $pw = 576; # Full 80mm width for labels too
-    $ph = [int]($img.Height * $pw / $img.Width)
+    # Use image width if available, ensure multiple of 8
+    $pw = $img.Width; 
+    if (($pw % 8) -ne 0) { $pw = [int]([Math]::Ceiling($pw / 8) * 8) }
+    $ph = $img.Height
     $bmp = New-Object System.Drawing.Bitmap $pw,$ph
     $gfx = [System.Drawing.Graphics]::FromImage($bmp)
     $gfx.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
