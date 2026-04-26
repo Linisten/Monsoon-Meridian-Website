@@ -51,6 +51,11 @@ const BarcodeGenerator = () => {
     return saved ? JSON.parse(saved) : { x: 0, y: 0, width: 75, height: 20 };
   });
 
+  const [designerFrame, setDesignerFrame] = useState(() => {
+    const saved = localStorage.getItem('mm_designer_frame');
+    return saved ? JSON.parse(saved) : { enabled: false, radius: 5, thickness: 1, padding: 1, color: '#000000', width: 75, height: 25, x: 0, y: 0 };
+  });
+
   // --- ADVANCED (IMAGE) STATE ---
   const [advancedFields, setAdvancedFields] = useState(() => {
     const saved = localStorage.getItem('mm_custom_fields'); // Migrate legacy
@@ -69,6 +74,11 @@ const BarcodeGenerator = () => {
   const [advancedBgSettings, setAdvancedBgSettings] = useState(() => {
     const saved = localStorage.getItem('mm_bg_settings');
     return saved ? JSON.parse(saved) : { x: 0, y: 0, width: 75, height: 20 };
+  });
+
+  const [advancedFrame, setAdvancedFrame] = useState(() => {
+    const saved = localStorage.getItem('mm_advanced_frame');
+    return saved ? JSON.parse(saved) : { enabled: false, radius: 5, thickness: 1, padding: 1, color: '#000000', width: 75, height: 25, x: 0, y: 0 };
   });
 
   // Active State Accessors (Standard is fixed at 2-col, 38x25mm per sticker)
@@ -93,6 +103,9 @@ const BarcodeGenerator = () => {
   const setActiveOffset = labelMode === 'custom' ? setDesignerOffset : (labelMode === 'standard' ? setStandardOffset : setAdvancedOffset);
   const activeA4 = labelMode === 'custom' ? designerA4 : (labelMode === 'advanced' ? advancedA4 : { cols: 3, rows: 8, gapX: 2, gapY: 0 });
   const setActiveA4 = labelMode === 'custom' ? setDesignerA4 : setAdvancedA4;
+
+  const activeFrame = labelMode === 'custom' ? designerFrame : (labelMode === 'advanced' ? advancedFrame : { enabled: false });
+  const setActiveFrame = labelMode === 'custom' ? setDesignerFrame : (labelMode === 'advanced' ? setAdvancedFrame : () => {});
 
   const [activeFieldId, setActiveFieldId] = useState(null);
   const [draggingFieldId, setDraggingFieldId] = useState(null);
@@ -121,6 +134,7 @@ const BarcodeGenerator = () => {
     localStorage.setItem('mm_designer_a4', JSON.stringify(designerA4));
     if (designerBgImage) localStorage.setItem('mm_designer_bg', designerBgImage);
     localStorage.setItem('mm_designer_bg_settings', JSON.stringify(designerBgSettings));
+    localStorage.setItem('mm_designer_frame', JSON.stringify(designerFrame));
 
     // Advanced
     localStorage.setItem('mm_custom_fields', JSON.stringify(advancedFields));
@@ -133,6 +147,7 @@ const BarcodeGenerator = () => {
     localStorage.setItem('mm_advanced_a4', JSON.stringify(advancedA4));
     if (advancedBgImage) localStorage.setItem('mm_label_template', advancedBgImage);
     localStorage.setItem('mm_bg_settings', JSON.stringify(advancedBgSettings));
+    localStorage.setItem('mm_advanced_frame', JSON.stringify(advancedFrame));
 
     // Standard
     localStorage.setItem('mm_standard_width', standardWidth);
@@ -169,7 +184,10 @@ const BarcodeGenerator = () => {
       x: 5, 
       y: (activeFields.length * 5) + 5, 
       size: 10, 
-      bold: false 
+      bold: false,
+      underline: false,
+      uThickness: 0.5,
+      uOffset: 0.5
     };
     setActiveFields([...activeFields, newField]);
     setActiveFieldId(newField.id);
@@ -437,6 +455,26 @@ const BarcodeGenerator = () => {
             );
           }
 
+          // 1.5 Draw Frame
+          if (activeFrame.enabled) {
+            ctx.strokeStyle = activeFrame.color;
+            ctx.lineWidth = activeFrame.thickness * dotsPerMm;
+            const p = activeFrame.padding * dotsPerMm;
+            const r = activeFrame.radius * dotsPerMm;
+            const fx = (activeFrame.x * dotsPerMm) + offsetX + p;
+            const fy = (activeFrame.y * dotsPerMm) + p;
+            const fw = (activeFrame.width * dotsPerMm) - (p * 2);
+            const fh = (activeFrame.height * dotsPerMm) - (p * 2);
+
+            ctx.beginPath();
+            if (ctx.roundRect) {
+              ctx.roundRect(fx, fy, fw, fh, r);
+            } else {
+              ctx.rect(fx, fy, fw, fh);
+            }
+            ctx.stroke();
+          }
+
           // 2. Overlay text
           ctx.fillStyle = 'black';
           ctx.textAlign = 'left';
@@ -448,6 +486,17 @@ const BarcodeGenerator = () => {
             const fx = (f.x * dotsPerMm) + offsetX + globalOffsetX;
             const fy = (f.y * dotsPerMm) + globalOffsetY;
             ctx.fillText(f.text, fx, fy);
+
+            if (f.underline) {
+              const textWidth = ctx.measureText(f.text).width;
+              ctx.beginPath();
+              ctx.lineWidth = (f.uThickness || 0.5) * dotsPerMm;
+              ctx.strokeStyle = 'black';
+              const underlineY = fy + (dotSize * 0.9) + ((f.uOffset || 0.5) * dotsPerMm);
+              ctx.moveTo(fx, underlineY);
+              ctx.lineTo(fx + textWidth, underlineY);
+              ctx.stroke();
+            }
           });
           ctx.restore();
         };
@@ -1059,6 +1108,98 @@ const BarcodeGenerator = () => {
                     </div>
                   )}
 
+                  {/* LABEL FRAME CONTROLS */}
+                  <div style={{ marginTop: '1.5rem', padding: '1rem', background: '#f1f5f9', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                      <h3 style={{ fontSize: '0.8rem', fontWeight: 800, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Layout size={14} /> Label Frame
+                      </h3>
+                      <label className="switch" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                        <input 
+                          type="checkbox" 
+                          checked={activeFrame.enabled} 
+                          onChange={e => setActiveFrame(prev => ({ ...prev, enabled: e.target.checked }))}
+                          style={{ width: '16px', height: '16px' }}
+                        />
+                        <span style={{ fontSize: '0.7rem', fontWeight: 700, color: activeFrame.enabled ? '#3b82f6' : '#64748b' }}>
+                          {activeFrame.enabled ? 'ON' : 'OFF'}
+                        </span>
+                      </label>
+                    </div>
+
+                    {activeFrame.enabled && (
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                        <div className="input-group">
+                          <label>Radius (mm)</label>
+                          <input 
+                            type="number" step="0.5" min="0"
+                            value={activeFrame.radius} 
+                            onChange={e => setActiveFrame(prev => ({ ...prev, radius: parseFloat(e.target.value) || 0 }))} 
+                          />
+                        </div>
+                        <div className="input-group">
+                          <label>Thickness (mm)</label>
+                          <input 
+                            type="number" step="0.1" min="0.1"
+                            value={activeFrame.thickness} 
+                            onChange={e => setActiveFrame(prev => ({ ...prev, thickness: parseFloat(e.target.value) || 0.1 }))} 
+                          />
+                        </div>
+                        <div className="input-group">
+                          <label>Padding (mm)</label>
+                          <input 
+                            type="number" step="0.5" min="0"
+                            value={activeFrame.padding} 
+                            onChange={e => setActiveFrame(prev => ({ ...prev, padding: parseFloat(e.target.value) || 0 }))} 
+                          />
+                        </div>
+                        <div className="input-group">
+                          <label>Width (mm)</label>
+                          <input 
+                            type="number" step="1" min="1"
+                            value={activeFrame.width} 
+                            onChange={e => setActiveFrame(prev => ({ ...prev, width: parseFloat(e.target.value) || activeWidth }))} 
+                          />
+                        </div>
+                        <div className="input-group">
+                          <label>Height (mm)</label>
+                          <input 
+                            type="number" step="1" min="1"
+                            value={activeFrame.height} 
+                            onChange={e => setActiveFrame(prev => ({ ...prev, height: parseFloat(e.target.value) || activeHeight }))} 
+                          />
+                        </div>
+                        <div className="input-group">
+                          <label>Offset X (mm)</label>
+                          <input 
+                            type="number" step="0.5"
+                            value={activeFrame.x} 
+                            onChange={e => setActiveFrame(prev => ({ ...prev, x: parseFloat(e.target.value) || 0 }))} 
+                          />
+                        </div>
+                        <div className="input-group">
+                          <label>Offset Y (mm)</label>
+                          <input 
+                            type="number" step="0.5"
+                            value={activeFrame.y} 
+                            onChange={e => setActiveFrame(prev => ({ ...prev, y: parseFloat(e.target.value) || 0 }))} 
+                          />
+                        </div>
+                        <div className="input-group">
+                          <label>Color</label>
+                          <select 
+                            value={activeFrame.color} 
+                            onChange={e => setActiveFrame(prev => ({ ...prev, color: e.target.value }))}
+                            style={{ padding: '0.5rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.8rem' }}
+                          >
+                            <option value="#000000">Black</option>
+                            <option value="#ffffff">White</option>
+                          </select>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   {printTarget === 'a4' && (
                     <div style={{ marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px solid #f1f5f9' }}>
                       <h3 style={{ fontSize: '0.8rem', fontWeight: 800, marginBottom: '0.75rem', color: '#1e293b', display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -1111,7 +1252,32 @@ const BarcodeGenerator = () => {
                           <label style={{ fontSize: '0.75rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', color: '#475569' }}>
                             <input type="checkbox" checked={f.bold} onChange={e => updateField(f.id, 'bold', e.target.checked)} style={{ width: '14px', height: '14px' }} /> Bold
                           </label>
+                          <label style={{ fontSize: '0.75rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', color: '#475569' }}>
+                            <input type="checkbox" checked={f.underline} onChange={e => updateField(f.id, 'underline', e.target.checked)} style={{ width: '14px', height: '14px' }} /> Underline
+                          </label>
                         </div>
+                        {f.underline && (
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginTop: '0.75rem', padding: '0.75rem', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                            <div className="input-group">
+                              <label>Line Thickness</label>
+                              <input 
+                                type="number" step="0.1" min="0.1"
+                                value={f.uThickness || 0.5} 
+                                onChange={e => updateField(f.id, 'uThickness', parseFloat(e.target.value) || 0.1)} 
+                                style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
+                              />
+                            </div>
+                            <div className="input-group">
+                              <label>Line Offset</label>
+                              <input 
+                                type="number" step="0.1"
+                                value={f.uOffset || 0.5} 
+                                onChange={e => updateField(f.id, 'uOffset', parseFloat(e.target.value) || 0)} 
+                                style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
+                              />
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1208,6 +1374,22 @@ const BarcodeGenerator = () => {
                       )}
                     </div>
                   )}
+
+                  {activeFrame.enabled && (
+                    <div 
+                      style={{ 
+                        position: 'absolute',
+                        left: (activeFrame.x + activeFrame.padding) * mmToPx,
+                        top: (activeFrame.y + activeFrame.padding) * mmToPx,
+                        width: (activeFrame.width - (activeFrame.padding * 2)) * mmToPx,
+                        height: (activeFrame.height - (activeFrame.padding * 2)) * mmToPx,
+                        border: `${activeFrame.thickness * mmToPx}px solid ${activeFrame.color}`,
+                        borderRadius: `${activeFrame.radius * mmToPx}px`,
+                        pointerEvents: 'none',
+                        zIndex: 5
+                      }} 
+                    />
+                  )}
                   {labelMode === 'standard' ? (
                     <>
                       {Array.from({ length: activeLpr }).map((_, i) => (
@@ -1253,7 +1435,9 @@ const BarcodeGenerator = () => {
                               top: f.y * mmToPx, 
                               fontSize: `${f.size}px`, 
                               fontWeight: f.bold ? 700 : 400,
-                              fontFamily: 'Arial, sans-serif'
+                              fontFamily: 'Arial, sans-serif',
+                              borderBottom: f.underline ? `${(f.uThickness || 0.5) * mmToPx}px solid black` : 'none',
+                              paddingBottom: f.underline ? `${(f.uOffset || 0.5) * mmToPx}px` : '0px'
                             }}
                           >
                             {f.text}
@@ -1328,6 +1512,21 @@ const BarcodeGenerator = () => {
                               alt="Template"
                             />
                           )}
+                          {activeFrame.enabled && (
+                            <div 
+                              style={{ 
+                                position: 'absolute',
+                                left: (activeFrame.x + activeFrame.padding) * mmToPx,
+                                top: (activeFrame.y + activeFrame.padding) * mmToPx,
+                                width: (activeFrame.width - (activeFrame.padding * 2)) * mmToPx,
+                                height: (activeFrame.height - (activeFrame.padding * 2)) * mmToPx,
+                                border: `${activeFrame.thickness * mmToPx}px solid ${activeFrame.color}`,
+                                borderRadius: `${activeFrame.radius * mmToPx}px`,
+                                pointerEvents: 'none',
+                                zIndex: 5
+                              }} 
+                            />
+                          )}
                           {labelMode === 'standard' ? (
                             <div className="printable-sticker" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between', padding: '6px', height: '100%' }}>
                               <div style={{ fontSize: `${standardNameSize * standardScale}px`, fontWeight: 800, color: '#1e293b', textAlign: 'center' }}>{formatItemName(productName.toUpperCase())}</div>
@@ -1345,6 +1544,8 @@ const BarcodeGenerator = () => {
                                   fontSize: `${f.size}px`, 
                                   fontWeight: f.bold ? 700 : 400,
                                   fontFamily: 'Arial, sans-serif',
+                                  borderBottom: f.underline ? `${(f.uThickness || 0.5) * mmToPx}px solid black` : 'none',
+                                  paddingBottom: f.underline ? `${(f.uOffset || 0.5) * mmToPx}px` : '0px',
                                   pointerEvents: 'none'
                                 }}
                               >
@@ -1396,6 +1597,21 @@ const BarcodeGenerator = () => {
                               alt="Template"
                             />
                           )}
+                          {activeFrame.enabled && (
+                            <div 
+                              style={{ 
+                                position: 'absolute',
+                                left: (activeFrame.x + activeFrame.padding) * mmToPx,
+                                top: (activeFrame.y + activeFrame.padding) * mmToPx,
+                                width: (activeFrame.width - (activeFrame.padding * 2)) * mmToPx,
+                                height: (activeFrame.height - (activeFrame.padding * 2)) * mmToPx,
+                                border: `${activeFrame.thickness * mmToPx}px solid ${activeFrame.color}`,
+                                borderRadius: `${activeFrame.radius * mmToPx}px`,
+                                pointerEvents: 'none',
+                                zIndex: 5
+                              }} 
+                            />
+                          )}
                           {labelMode === 'standard' ? (
                             <div className="printable-sticker" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', padding: '6px', height: '100%', gap: `${standardGap * standardScale}px` }}>
                               <div style={{ fontSize: `${(standardNameSize * standardScale) * (mmToPx / 4.4)}px`, fontWeight: 800, color: '#1e293b', textAlign: 'center' }}>{formatItemName(productName.toUpperCase())}</div>
@@ -1413,6 +1629,8 @@ const BarcodeGenerator = () => {
                                   fontSize: `${f.size}px`, 
                                   fontWeight: f.bold ? 700 : 400,
                                   fontFamily: 'Arial, sans-serif',
+                                  borderBottom: f.underline ? `${(f.uThickness || 0.5) * mmToPx}px solid black` : 'none',
+                                  paddingBottom: f.underline ? `${(f.uOffset || 0.5) * mmToPx}px` : '0px',
                                   pointerEvents: 'none'
                                 }}
                               >
