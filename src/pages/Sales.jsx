@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Plus, Minus, X, CreditCard, Banknote, Smartphone, ScanLine, CheckCircle, Printer, XCircle, Search, Camera } from 'lucide-react';
+import { Plus, Minus, X, CreditCard, Banknote, Smartphone, ScanLine, CheckCircle, Printer, XCircle, Search, Camera, Trash2 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Scanner } from '@yudiel/react-qr-scanner';
 import { supabase } from '../config/supabaseClient';
@@ -179,26 +179,50 @@ const ThermalReceipt = ({ tx, settings }) => {
 
 // ── Main Sales Component ─────────────────────────────────────────────────────
 const Sales = () => {
-  const [cart,             setCart]             = useState([]);
+  const [cart,             setCart]             = useState(() => JSON.parse(sessionStorage.getItem('sales_cart') || '[]'));
   const [items,            setItems]            = useState([]);
   const [activeCategory,   setActiveCategory]   = useState('ALL');
-  const [receivedAmount,   setReceivedAmount]   = useState('');
+  const [receivedAmount,   setReceivedAmount]   = useState(() => sessionStorage.getItem('sales_receivedAmount') || '');
   const [paymentOverlay,   setPaymentOverlay]   = useState(null);
   const [showUpi,          setShowUpi]          = useState(false);
   const [showReceipt,      setShowReceipt]      = useState(false);
   const [showCamScanner,   setShowCamScanner]   = useState(false);
   const [camError,         setCamError]         = useState('');
   const [lastTransaction,  setLastTransaction]  = useState(null);
-  const [taxPercent,       setTaxPercent]       = useState(0);
-  const [discount,         setDiscount]         = useState('');
+  const [taxPercent,       setTaxPercent]       = useState(() => Number(sessionStorage.getItem('sales_taxPercent') || '0'));
+  const [discount,         setDiscount]         = useState(() => sessionStorage.getItem('sales_discount') || '');
   const [barcodeInput,     setBarcodeInput]     = useState('');
   const [itemSearch,       setItemSearch]       = useState('');
   const [customers,        setCustomers]        = useState([]);
-  const [selectedCustomer, setSelectedCustomer] = useState('Walk-in Customer');
+  const [selectedCustomer, setSelectedCustomer] = useState(() => sessionStorage.getItem('sales_selectedCustomer') || 'Walk-in Customer');
   const [categories,       setCategories]       = useState(['ALL']);
   const [stockWarning,     setStockWarning]     = useState(null);
 
   const [sysSettings,      setSysSettings]      = useState({});
+
+  useEffect(() => {
+    sessionStorage.setItem('sales_cart', JSON.stringify(cart));
+    sessionStorage.setItem('sales_receivedAmount', receivedAmount);
+    sessionStorage.setItem('sales_taxPercent', taxPercent.toString());
+    sessionStorage.setItem('sales_discount', discount);
+    sessionStorage.setItem('sales_selectedCustomer', selectedCustomer);
+  }, [cart, receivedAmount, taxPercent, discount, selectedCustomer]);
+
+  const handleClearSales = async () => {
+    const isConfirmed = await confirm({
+      title: 'Clear Sales Data',
+      message: 'Are you sure you want to clear the cart and all entered sales data?',
+      confirmText: 'Yes, Clear',
+      cancelText: 'Cancel'
+    });
+    if (!isConfirmed) return;
+    
+    setCart([]);
+    setReceivedAmount('');
+    setTaxPercent(0);
+    setDiscount('');
+    setSelectedCustomer('Walk-in Customer');
+  };
   const [isProcessing,     setIsProcessing]     = useState(false);
   const [isPrinting,       setIsPrinting]       = useState(false);
   const { confirm, alert } = useConfirm();
@@ -504,7 +528,15 @@ const Sales = () => {
             <input type="date" defaultValue={new Date().toISOString().split('T')[0]} />
           </div>
           <div style={{ flex: 2 }}>
-            <label style={{ fontSize: '0.75rem', color: 'var(--c-text-secondary)', display: 'block', marginBottom: '0.25rem' }}>Scan Barcode</label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
+              <label style={{ fontSize: '0.75rem', color: 'var(--c-text-secondary)', display: 'block' }}>Scan Barcode</label>
+              <button 
+                onClick={handleClearSales}
+                style={{ fontSize: '0.8rem', color: 'var(--c-danger)', border: '1px solid var(--c-danger)', borderRadius: '6px', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 10px', fontWeight: 600 }}
+              >
+                <Trash2 size={14} /> Clear
+              </button>
+            </div>
             <div style={{ position: 'relative', display: 'flex', gap: '0.5rem' }}>
               <div style={{ position: 'relative', flex: 1 }}>
                 <ScanLine size={16} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--c-text-secondary)' }} />

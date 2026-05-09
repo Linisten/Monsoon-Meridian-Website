@@ -194,10 +194,14 @@ async function printLabels(labelImages, copies = 1, printerName) {
 
 // ── Print via external PS1 script ──────────────────────────────────────────
 async function printReceipt(data, settings, printerName) {
-  // Find logo: check production path (dist) first, then development path (public)
+  // Find logo: check production path (dist) first, then development path (public), then source path
   const prodLogo = path.resolve(__dirname, '..', 'dist', 'logo.jpg');
   const devLogo  = path.resolve(__dirname, '..', 'public', 'logo.jpg');
-  const logoPath = (fs.existsSync(prodLogo) ? prodLogo : devLogo).replace(/\\/g, '/');
+  const srcLogo  = path.resolve(__dirname, '..', 'src', 'assets', 'logo.jpg');
+  let logoPath = srcLogo;
+  if (fs.existsSync(prodLogo)) logoPath = prodLogo;
+  else if (fs.existsSync(devLogo)) logoPath = devLogo;
+  logoPath = logoPath.replace(/\\/g, '/');
   
   const { part1, part2, post } = buildReceipt(data, settings);
 

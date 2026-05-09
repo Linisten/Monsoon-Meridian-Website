@@ -4,39 +4,56 @@ $jsonPath = $args[0]
 $d = Get-Content $jsonPath | ConvertFrom-Json
 
 function Logo([string]$path) {
-    if (-not (Test-Path $path)) { Write-Host "Logo not found"; return [byte[]]@() }
-    $img = [System.Drawing.Image]::FromFile($path)
-    # Use image width if available, ensure multiple of 8
-    $pw = $img.Width; 
-    if (($pw % 8) -ne 0) { $pw = [int]([Math]::Ceiling($pw / 8) * 8) }
-    $ph = $img.Height
-    $bmp = New-Object System.Drawing.Bitmap $pw,$ph
-    $gfx = [System.Drawing.Graphics]::FromImage($bmp)
-    $gfx.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-    $gfx.DrawImage($img, 0, 0, $pw, $ph)
-    $gfx.Dispose(); $img.Dispose()
-    
-    $xL = [byte](($pw / 8) % 256); $xH = [byte]([Math]::Floor(($pw / 8) / 256))
-    $yL = [byte]($ph % 256); $yH = [byte]([Math]::Floor($ph / 256))
-    
-    # GS v 0 0 xL xH yL yH
-    $hdr = [byte[]](0x1B,0x61,0x01, 0x1D,0x76,0x30,0x00, $xL,$xH,$yL,$yH)
-    $body = New-Object byte[] ($pw/8 * $ph)
-    $idx = 0
-    for ($row=0; $row -lt $ph; $row++) {
-        for ($col=0; $col -lt $pw; $col+=8) {
-            $byte = 0
-            for ($bit=0; $bit -lt 8; $bit++) {
-                if ($col+$bit -lt $pw) {
-                    $px = $bmp.GetPixel($col+$bit, $row)
-                    if ($px.GetBrightness() -lt 0.71) { $byte = $byte -bor (1 -shl (7-$bit)) }
-                }
-            }
-            $body[$idx++] = [byte]$byte
-        }
+    if (-not (Test-Path $path)) { 
+        $msg = [System.Text.Encoding]::ASCII.GetBytes("LOGO NOT FOUND: $path`n")
+        return [byte[]](0x1B, 0x61, 0x01) + $msg 
     }
-    $bmp.Dispose()
-    return [byte[]]($hdr + $body)
+    try {
+        $img = [System.Drawing.Image]::FromFile($path)
+        
+        $maxW = 512
+        $pw = $img.Width
+        $ph = $img.Height
+        
+        if ($pw -gt $maxW) {
+            $ph = [int]([Math]::Round($ph * ($maxW / $pw)))
+            $pw = $maxW
+        }
+        
+        if (($pw % 8) -ne 0) { $pw = [int]([Math]::Ceiling($pw / 8) * 8) }
+        
+        $bmp = New-Object System.Drawing.Bitmap $pw,$ph
+        $gfx = [System.Drawing.Graphics]::FromImage($bmp)
+        $gfx.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+        $gfx.Clear([System.Drawing.Color]::White)
+        $gfx.DrawImage($img, 0, 0, $pw, $ph)
+        $gfx.Dispose(); $img.Dispose()
+        
+        $xL = [byte](($pw / 8) % 256); $xH = [byte]([Math]::Floor(($pw / 8) / 256))
+        $yL = [byte]($ph % 256); $yH = [byte]([Math]::Floor($ph / 256))
+        
+        # GS v 0 0 xL xH yL yH
+        $hdr = [byte[]](0x1B,0x61,0x01, 0x1D,0x76,0x30,0x00, $xL,$xH,$yL,$yH)
+        $body = New-Object byte[] ($pw/8 * $ph)
+        $idx = 0
+        for ($row=0; $row -lt $ph; $row++) {
+            for ($col=0; $col -lt $pw; $col+=8) {
+                $byte = 0
+                for ($bit=0; $bit -lt 8; $bit++) {
+                    if ($col+$bit -lt $pw) {
+                        $px = $bmp.GetPixel($col+$bit, $row)
+                        if ($px.GetBrightness() -lt 0.71) { $byte = $byte -bor (1 -shl (7-$bit)) }
+                    }
+                }
+                $body[$idx++] = [byte]$byte
+            }
+        }
+        $bmp.Dispose()
+        return [byte[]]($hdr + $body + [byte[]](0x0A))
+    } catch {
+        $msg = [System.Text.Encoding]::ASCII.GetBytes("LOGO ERR: $_`n")
+        return [byte[]](0x1B, 0x61, 0x01) + $msg
+    }
 }
 
 function QR([string]$text) {
