@@ -4,6 +4,7 @@ import { Search, Save, XCircle, Plus, CheckCircle } from 'lucide-react';
 import { supabase } from '../config/supabaseClient';
 import SearchableSelect from '../components/SearchableSelect';
 import { setScannerHandler, clearScannerHandler } from '../utils/keyboardManager';
+import { useConfirm } from '../context/ConfirmContext';
 
 const Purchase = () => {
   const [billItems, setBillItems] = useState([]);
@@ -24,6 +25,7 @@ const Purchase = () => {
   const [notes, setNotes] = useState('');
   const [suppliers, setSuppliers] = useState([]);
   const navigate = useNavigate();
+  const { confirm, alert } = useConfirm();
   const searchInputRef = useRef(null);
   const scannerBuffer = useRef('');
   const scannerTimeout = useRef(null);
@@ -127,7 +129,7 @@ const Purchase = () => {
         setPurQty(1);
         setSearchInput('');
       } else {
-        alert('Item not found: ' + code);
+        alert('Item not found: ' + code, 'error');
       }
     }
   };
@@ -137,7 +139,7 @@ const Purchase = () => {
   };
 
   const savePurchase = async () => {
-    if (billItems.length === 0) return alert('No items to purchase');
+    if (billItems.length === 0) return alert('No items to purchase', 'error');
     
     // Save purchase record with full items payload
     const { error: purchaseError } = await supabase.from('purchases').insert({
@@ -152,7 +154,7 @@ const Purchase = () => {
       other_charges: otherCharges.filter(c => (parseFloat(c.amount) || 0) > 0),
       notes: notes
     });
-    if (purchaseError) return alert('Error saving purchase: ' + purchaseError.message);
+    if (purchaseError) return alert('Error saving purchase: ' + purchaseError.message, 'error');
 
     // Step 5: Auto-update stock_quantity and expiry_date
     const stockUpdates = billItems.map(item => {
@@ -176,7 +178,7 @@ const Purchase = () => {
     
     await Promise.all(stockUpdates);
 
-    alert(`Purchase saved! Stock and Expiry dates updated for ${billItems.length} item(s).`);
+    await alert(`Purchase saved! Stock and Expiry dates updated for ${billItems.length} item(s).`, 'success');
     setBillItems([]);
     setBillNo('');
     setReferenceNo('');

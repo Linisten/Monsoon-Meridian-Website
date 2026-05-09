@@ -61,13 +61,17 @@ function AppRoutes() {
   );
 }
 
+import { ConfirmProvider } from './context/ConfirmContext';
+
 function App() {
   return (
-    <AuthProvider>
-      <HashRouter>
-        <AppRoutes />
-      </HashRouter>
-    </AuthProvider>
+    <ConfirmProvider>
+      <AuthProvider>
+        <HashRouter>
+          <AppRoutes />
+        </HashRouter>
+      </AuthProvider>
+    </ConfirmProvider>
   );
 }
 

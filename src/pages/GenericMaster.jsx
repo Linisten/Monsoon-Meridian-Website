@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../config/supabaseClient';
 import { Save, Plus, Trash2, Database, ArrowLeft } from 'lucide-react';
+import { useConfirm } from '../context/ConfirmContext';
 
 // ── Field schema config for each master type ─────────────────────────────────
 const MASTER_CONFIG = {
@@ -106,6 +107,7 @@ const GenericMaster = () => {
   const [data,         setData]         = useState([]);
   const [activeRecord, setActiveRecord] = useState(null);
   const [loading,      setLoading]      = useState(true);
+  const { confirm, alert } = useConfirm();
   const [saved,        setSaved]        = useState(false);
   const [error,        setError]        = useState(null);
   const [search,       setSearch]       = useState('');
@@ -138,7 +140,7 @@ const GenericMaster = () => {
 
   const handleSave = async () => {
     const reqField = fields.find(f => f.required);
-    if (reqField && !activeRecord[reqField.key]) return alert(`${reqField.label} is required`);
+    if (reqField && !activeRecord[reqField.key]) return alert(`${reqField.label} is required`, 'error');
 
     const payload = {};
     fields.forEach(f => payload[f.key] = activeRecord[f.key] || '');
@@ -149,7 +151,7 @@ const GenericMaster = () => {
     } else {
       ({ error: err } = await supabase.from(type).insert([payload]));
     }
-    if (err) return alert('Error: ' + err.message);
+    if (err) return alert('Error: ' + err.message, 'error');
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
     fetchData();
@@ -157,9 +159,18 @@ const GenericMaster = () => {
 
   const handleDelete = async () => {
     if (!activeRecord?.id) return;
-    if (!confirm(`Delete "${activeRecord.name}"? This cannot be undone.`)) return;
+    
+    const isConfirmed = await confirm({
+      title: `Delete ${config.label}?`,
+      message: `Are you sure you want to delete "${activeRecord.name}"? This action cannot be undone.`,
+      type: 'danger',
+      confirmText: 'Delete Record',
+      cancelText: 'Keep it'
+    });
+    
+    if (!isConfirmed) return;
     const { error: err } = await supabase.from(type).delete().eq('id', activeRecord.id);
-    if (err) return alert('Error: ' + err.message);
+    if (err) return alert('Error: ' + err.message, 'error');
     fetchData();
   };
 

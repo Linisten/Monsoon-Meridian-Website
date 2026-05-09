@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Save, Building, Phone, Mail, MapPin, Receipt, Smartphone, CheckCircle, Printer, AlertCircle } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { supabase } from '../config/supabaseClient';
+import { useConfirm } from '../context/ConfirmContext';
 import SearchableSelect from '../components/SearchableSelect';
 import logoUrl from '../assets/logo.jpg';
 
@@ -43,6 +44,7 @@ const Settings = () => {
   const [settingsId, setSettingsId] = useState(null);
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
+  const { alert } = useConfirm();
 
   useEffect(() => {
     loadSettings();
@@ -77,7 +79,7 @@ const Settings = () => {
       error = res.error;
       if (!error && res.data?.[0]) setSettingsId(res.data[0].id);
     }
-    if (error) return alert('Error saving settings: ' + error.message);
+    if (error) return alert('Error saving settings: ' + error.message, 'error');
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
   };

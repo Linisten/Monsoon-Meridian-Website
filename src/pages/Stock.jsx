@@ -1,586 +1,502 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, Save, Package, AlertTriangle, Image, Upload, Trash2, Camera, X } from 'lucide-react';
+import { 
+  Package, AlertTriangle, Clock, IndianRupee, 
+  Plus, Search, Edit3, Trash2, Camera, X, Save, 
+  ChevronRight, Barcode, Filter
+} from 'lucide-react';
 import { Scanner } from '@yudiel/react-qr-scanner';
-import SearchableSelect from '../components/SearchableSelect';
 import { supabase } from '../config/supabaseClient';
 import { setScannerHandler, clearScannerHandler } from '../utils/keyboardManager';
+import { useConfirm } from '../context/ConfirmContext';
 
 const Stock = () => {
-  // ─── STATE & REFS ────────────────────────────────────────────────────────
-  const [activeTab, setActiveTab] = useState('verification'); // 'verification' or 'master'
   const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [activeItem, setActiveItem] = useState(null);
-  const [uploadingImage, setUploadingImage] = useState(false);
-  const [status, setStatus] = useState({ msg: '', type: '' });
-  const [showCamScanner, setShowCamScanner] = useState(false);
-  const [camError, setCamError] = useState('');
-  
-  // Master lists for dropdowns
   const [categories, setCategories] = useState([]);
   const [units, setUnits] = useState([]);
   const [taxes, setTaxes] = useState([]);
-  const [packTypes, setPackTypes] = useState([]);
-
+  
+  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [searchType, setSearchType] = useState('ItemDescription');
-  const [verificationDate, setVerificationDate] = useState(new Date().toISOString().split('T')[0]);
-  const searchInputRef = useRef(null);
+  const [selectedCategory, setSelectedCategory] = useState('ALL');
+  const [statusFilter, setStatusFilter] = useState('ALL'); // ALL, LOW, EXPIRED
+  const [activeItem, setActiveItem] = useState(null); // Used for the Modal
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [showCamScanner, setShowCamScanner] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  
+  const { confirm, alert } = useConfirm();
 
-  const scannerBuffer = useRef('');
-  const scannerTimeout = useRef(null);
-  const scannerLogicRef = useRef(null);
-
-  // ─── UTILITIES ───────────────────────────────────────────────────────────
-  const showStatus = (msg, type = 'success') => {
-    setStatus({ msg, type });
-    setTimeout(() => setStatus({ msg: '', type: '' }), 3000);
-  };
-
-  // ─── BASIC HANDLERS ──────────────────────────────────────────────────────
-  const handleActiveItemChange = (field, value) => {
-    if (!activeItem) return;
-    setActiveItem({ ...activeItem, [field]: value });
-  };
-
-  const handleCreateNew = useCallback(() => {
-    setActiveItem({ 
-      name: '', 
-      code: '', 
-      category: 'GENERAL', 
-      unit: 'NOS',
-      pack: 'NOS', 
-      price: 0, 
-      stock_quantity: 0, 
-      mrp: 0, 
-      cost_price: 0, 
-      image_url: null,
-      tax_category: '',
-      low_stock_alert: 5,
-      expiry_date: '',
-      is_active: true,
-      barcode_type: 'SYSTEM GENERATED',
-      item_type: 'INVENTORY'
-    });
+  useEffect(() => {
+    fetchData();
+    fetchDropdowns();
   }, []);
 
-  // ─── DATA FETCHING ───────────────────────────────────────────────────────
-  const fetchItems = useCallback(async (selectId = null) => {
+  const fetchData = async () => {
     setLoading(true);
     const { data, error } = await supabase.from('items').select('*').order('name');
-    if (!error && data) {
-      setItems(data);
-      if (selectId) {
-        setActiveItem(prev => {
-          if (prev && !prev.id && prev.name === '') return prev; 
-          const found = data.find(i => i.id === selectId);
-          return found || (data.length > 0 ? data[0] : null);
-        });
-      } else {
-        setActiveItem(prev => (prev ? prev : (data.length > 0 ? data[0] : null)));
-      }
-    }
+    if (!error && data) setItems(data);
     setLoading(false);
-  }, []);
-
-  const fetchMasters = useCallback(async () => {
-    const { data: catData } = await supabase.from('category').select('name').order('name');
-    const { data: unitData } = await supabase.from('unit').select('name').order('name');
-    const { data: taxData } = await supabase.from('tax').select('name').order('name');
-    const { data: packData } = await supabase.from('packtype').select('name').order('name');
-    
-    if (catData) setCategories(catData);
-    if (unitData) setUnits(unitData);
-    if (taxData) setTaxes(taxData);
-    if (packData) setPackTypes(packData);
-  }, []);
-
-  // ─── ACTIONS ─────────────────────────────────────────────────────────────
-  const saveItem = async () => {
-    if (!activeItem || !activeItem.name) return showStatus('Item Name is required!', 'error');
-    
-    const payload = {
-      code: activeItem.code || '',
-      name: activeItem.name,
-      category: activeItem.category || 'GENERAL',
-      unit: activeItem.unit || 'NOS',
-      pack: activeItem.pack || 'NOS',
-      price: parseFloat(activeItem.price) || 0,
-      stock_quantity: parseFloat(activeItem.stock_quantity) || 0,
-      mrp: parseFloat(activeItem.mrp) || 0,
-      cost_price: parseFloat(activeItem.cost_price) || 0,
-      low_stock_alert: parseFloat(activeItem.low_stock_alert) || 5,
-      image_url: activeItem.image_url || null,
-      tax_category: activeItem.tax_category || '',
-      is_active: activeItem.is_active === undefined ? true : activeItem.is_active,
-      barcode_type: activeItem.barcode_type || 'SYSTEM GENERATED',
-      item_type: activeItem.item_type || 'INVENTORY',
-      expiry_date: activeItem.expiry_date || null,
-    };
-
-    if (activeItem.id) {
-       const { error } = await supabase.from('items').update(payload).eq('id', activeItem.id);
-       if (error) {
-         showStatus('Update Error: ' + error.message, 'error');
-       } else {
-         showStatus('Item updated successfully');
-         fetchItems(activeItem.id); 
-       }
-    } else {
-       const { data: insertData, error: insertError } = await supabase.from('items').insert([payload]).select();
-       if (insertError) {
-         showStatus('Insert Error: ' + insertError.message, 'error');
-       } else {
-         showStatus('Item created successfully');
-         const newId = insertData?.[0]?.id;
-         fetchItems(newId);
-       }
-    }
-    setTimeout(() => searchInputRef.current?.focus(), 0);
   };
 
-  const deleteItem = async () => {
-    if (!activeItem?.id) return;
-    if (!window.confirm(`Are you sure you want to delete "${activeItem.name}"? This action cannot be undone.`)) return;
+  const fetchDropdowns = async () => {
+    const [cats, uns, txs] = await Promise.all([
+      supabase.from('category').select('name').order('name'),
+      supabase.from('unit').select('name').order('name'),
+      supabase.from('tax').select('name, percentage').order('name')
+    ]);
+    if (cats.data) setCategories(cats.data.map(c => c.name));
+    if (uns.data) setUnits(uns.data.map(u => u.name));
+    if (txs.data) setTaxes(txs.data);
+  };
 
-    try {
-      const { error } = await supabase.from('items').delete().eq('id', activeItem.id);
-      if (error) throw error;
-      
-      showStatus('Item deleted successfully');
-      setSearchTerm(''); // Clear search to see list update
-      fetchItems(); // Reload list
-      setTimeout(() => searchInputRef.current?.focus(), 0);
-    } catch (err) {
-      showStatus('Delete Error: ' + err.message, 'error');
+  // ─── FILTERED DATA FOR STATS ──────────────────────────────────────────
+  const filteredForStats = items
+    .filter(it => (selectedCategory === 'ALL' || it.category === selectedCategory))
+    .filter(it => !searchTerm || it.name.toLowerCase().includes(searchTerm.toLowerCase()) || it.code?.toLowerCase().includes(searchTerm.toLowerCase()));
+
+  const stats = {
+    totalCount: filteredForStats.length,
+    lowStock: filteredForStats.filter(it => it.stock_quantity > 0 && it.stock_quantity <= (it.low_stock_alert || 5)).length,
+    outOfStock: filteredForStats.filter(it => it.stock_quantity <= 0).length,
+    expired: filteredForStats.filter(it => it.expiry_date && new Date(it.expiry_date) < new Date()).length
+  };
+
+  // ─── HANDLERS ──────────────────────────────────────────────────────────
+  const openEditModal = (item = null) => {
+    if (item) {
+      setActiveItem({ ...item });
+    } else {
+      setActiveItem({
+        name: '', code: '', category: categories[0] || 'GENERAL', 
+        unit: units[0] || 'NOS', tax: taxes[0]?.name || 'GST 0%', 
+        cost_price: 0, rate: 0, mrp: 0, stock_quantity: 0, 
+        low_stock_alert: 5, expiry_date: '', image_url: ''
+      });
+    }
+    setIsModalOpen(true);
+  };
+
+  const handleSave = async () => {
+    if (!activeItem.name) return alert('Item Name is required', 'error');
+    setIsSaving(true);
+    
+    const payload = { ...activeItem };
+    let error;
+
+    if (payload.id) {
+      ({ error } = await supabase.from('items').update(payload).eq('id', payload.id));
+    } else {
+      ({ error } = await supabase.from('items').insert([payload]));
+    }
+
+    setIsSaving(false);
+    if (error) {
+      alert('Error saving: ' + error.message, 'error');
+    } else {
+      await alert('Item saved successfully!', 'success');
+      setIsModalOpen(false);
+      fetchData();
+    }
+  };
+
+  const handleDelete = async (id, name) => {
+    const isConfirmed = await confirm({
+      title: 'Delete Item?',
+      message: `Are you sure you want to delete "${name}"? This cannot be undone.`,
+      type: 'danger',
+      confirmText: 'Delete Item'
+    });
+
+    if (isConfirmed) {
+      const { error } = await supabase.from('items').delete().eq('id', id);
+      if (error) {
+        alert('Error deleting: ' + error.message, 'error');
+      } else {
+        await alert('Item deleted successfully', 'success');
+        fetchData();
+      }
     }
   };
 
   const uploadImage = async (file) => {
     if (!file) return;
-    setUploadingImage(true);
-    const ext = file.name.split('.').pop();
-    const fileName = `item_${Date.now()}.${ext}`;
-    const { data, error } = await supabase.storage
-      .from('product-images')
-      .upload(fileName, file, { upsert: true });
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Math.random()}.${fileExt}`;
+    const { data, error } = await supabase.storage.from('product-images').upload(fileName, file);
+    
     if (error) {
-      alert('Upload failed: ' + error.message + '\n\nMake sure you have created a "product-images" Storage bucket in Supabase (public bucket).');
+      alert('Upload failed: ' + error.message, 'error');
     } else {
       const { data: urlData } = supabase.storage.from('product-images').getPublicUrl(data.path);
-      handleActiveItemChange('image_url', urlData.publicUrl);
-    }
-    setUploadingImage(false);
-  };
-
-  // ─── SCANNER LOGIC ───────────────────────────────────────────────────────
-  const fillBarcode = useCallback((code) => {
-    if (!code) return;
-
-    if (activeTab === 'master') {
-      if (activeItem) {
-        setActiveItem(prev => ({ ...prev, code: code }));
-        showStatus('Barcode updated in field.');
-      } else {
-        handleCreateNew();
-        setActiveItem(prev => ({ ...prev, code: code }));
-        showStatus('New item started with scanned barcode.');
-      }
-    } else {
-      const existing = items.find(it => it.code?.toLowerCase() === code.toLowerCase());
-      if (existing) {
-        setActiveItem(existing);
-        showStatus('Item found: ' + existing.name);
-      } else {
-        showStatus('Item with barcode ' + code + ' not found in master.', 'error');
-      }
-    }
-    // ensure search bar stays ready
-    setTimeout(() => searchInputRef.current?.focus(), 0);
-  }, [items, activeTab, activeItem, handleCreateNew]);
-
-  const handleSearchKeyDown = (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      const code = e.target.value.trim(); // Use direct value
-      if (!code) return;
-      const item = items.find(it => (it.code || '').toLowerCase() === code.toLowerCase());
-      if (item) {
-        setActiveItem(item);
-        setSearchTerm('');
-        showStatus('Item found: ' + item.name);
-      }
+      setActiveItem(prev => ({ ...prev, image_url: urlData.publicUrl }));
     }
   };
 
-  useEffect(() => {
-    scannerLogicRef.current = fillBarcode;
-    setScannerHandler(fillBarcode);
-    return () => clearScannerHandler();
-  }, [fillBarcode]);
+  // ─── UI COMPONENTS ──────────────────────────────────────────────────────
+  const StatCard = ({ title, value, icon: Icon, color, isActive, onClick }) => (
+    <div 
+      onClick={onClick}
+      className="card" 
+      style={{ 
+        flex: 1, 
+        padding: '1.5rem', 
+        display: 'flex', 
+        alignItems: 'center', 
+        gap: '1.5rem', 
+        borderLeft: `6px solid ${color}`,
+        cursor: 'pointer',
+        transform: isActive ? 'translateY(-5px)' : 'none',
+        boxShadow: isActive ? '0 10px 20px -5px rgba(0,0,0,0.1)' : 'var(--shadow-sm)',
+        transition: 'all 0.2s',
+        backgroundColor: isActive ? '#f8fafc' : 'white',
+        border: isActive ? `2px solid ${color}40` : '1px solid var(--c-border)'
+      }}
+    >
+      <div style={{ backgroundColor: `${color}15`, color: color, padding: '1rem', borderRadius: '16px' }}>
+        <Icon size={32} />
+      </div>
+      <div>
+        <div style={{ fontSize: '0.85rem', color: 'var(--c-text-secondary)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{title}</div>
+        <div style={{ fontSize: '1.75rem', fontWeight: 900, color: 'var(--c-text-primary)' }}>{Math.round(value).toLocaleString()}</div>
+      </div>
+    </div>
+  );
 
-  const onCamScan = (scanResult) => {
-    if (scanResult && scanResult.length > 0) {
-      const code = scanResult[0].rawValue;
-      fillBarcode(code);
-      setShowCamScanner(false);
-      setCamError('');
-    }
-  };
-
-  // ─── EFFECTS ─────────────────────────────────────────────────────────────
-  useEffect(() => {
-    fetchItems();
-    fetchMasters();
-  }, [fetchItems, fetchMasters]);
-
-  // ─── RENDER ──────────────────────────────────────────────────────────────
   return (
-    <div style={{ height: 'calc(100vh - 120px)', position: 'relative', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', paddingBottom: '2rem' }}>
       
-      {/* Tabs Layout */}
-      <div style={{ display: 'flex', gap: '1rem', borderBottom: '2px solid var(--c-border)' }}>
-        <button 
-          onClick={() => setActiveTab('verification')}
-          style={{ 
-            padding: '0.75rem 1.5rem', 
-            fontSize: '1rem', 
-            fontWeight: 600, 
-            color: activeTab === 'verification' ? 'var(--c-wave)' : 'var(--c-text-secondary)',
-            borderBottom: activeTab === 'verification' ? '3px solid var(--c-wave)' : '3px solid transparent',
-            marginBottom: '-2px'
-          }}
-        >
-          Stock Verification
-        </button>
-        <button 
-          onClick={() => setActiveTab('master')}
-          style={{ 
-            padding: '0.75rem 1.5rem', 
-            fontSize: '1rem', 
-            fontWeight: 600, 
-            color: activeTab === 'master' ? 'var(--c-wave)' : 'var(--c-text-secondary)',
-            borderBottom: activeTab === 'master' ? '3px solid var(--c-wave)' : '3px solid transparent',
-            marginBottom: '-2px'
-          }}
-        >
-          Item Master
-        </button>
+      {/* ─── STATS ROW ─── */}
+      <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
+        <StatCard 
+          title="Total Products" 
+          value={stats.totalCount} 
+          icon={Package} 
+          color="#3b82f6" 
+          isActive={statusFilter === 'ALL'}
+          onClick={() => setStatusFilter('ALL')}
+        />
+        <StatCard 
+          title="Low Stock Items" 
+          value={stats.lowStock} 
+          icon={AlertTriangle} 
+          color="#f59e0b" 
+          isActive={statusFilter === 'LOW'}
+          onClick={() => setStatusFilter('LOW')}
+        />
+        <StatCard 
+          title="Out of Stock" 
+          value={stats.outOfStock} 
+          icon={X} 
+          color="#64748b" 
+          isActive={statusFilter === 'OUT_OF_STOCK'}
+          onClick={() => setStatusFilter('OUT_OF_STOCK')}
+        />
+        <StatCard 
+          title="Expired Items" 
+          value={stats.expired} 
+          icon={Clock} 
+          color="#ef4444" 
+          isActive={statusFilter === 'EXPIRED'}
+          onClick={() => setStatusFilter('EXPIRED')}
+        />
       </div>
 
-      <div style={{ flex: 1, display: 'flex', gap: '1.5rem', minHeight: 0 }}>
+      {/* ─── LIST SECTION ─── */}
+      <div className="card" style={{ padding: '0', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         
-        {/* LEFT PANE */}
-        <div style={{ flex: '1 1 55%', display: 'flex', flexDirection: 'column', gap: '1rem', minWidth: 0 }}>
-          
-          {status.msg && (
-            <div style={{
-              position: 'absolute', top: '-10px', left: '50%', transform: 'translateX(-50%)',
-              padding: '0.5rem 1.5rem', borderRadius: '20px', backgroundColor: status.type === 'error' ? '#fee2e2' : '#f0fdf4',
-              color: status.type === 'error' ? '#ef4444' : '#10b981', border: '1px solid currentColor',
-              fontSize: '0.85rem', fontWeight: 600, zIndex: 1000, boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
-            }}>
-              {status.msg}
-            </div>
-          )}
-
-          {activeTab === 'verification' ? (
-            <>
-              <div className="card" style={{ padding: '1rem', display: 'flex', gap: '1rem' }}>
-                <div style={{ flex: 1 }}>
-                  <label style={{ fontSize: '0.75rem', color: 'var(--c-text-secondary)', display: 'block', marginBottom: '0.25rem' }}>Verification No</label>
-                  <input type="text" placeholder="Auto-generated" disabled style={{ padding: '0.5rem', fontSize: '0.85rem', backgroundColor: 'var(--c-bg)' }} />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <label style={{ fontSize: '0.75rem', color: 'var(--c-text-secondary)', display: 'block', marginBottom: '0.25rem' }}>Verification Date</label>
-                  <input 
-                    type="date" 
-                    value={verificationDate} 
-                    onChange={e => setVerificationDate(e.target.value)}
-                    style={{ padding: '0.5rem', fontSize: '0.85rem' }} 
-                  />
-                </div>
-              </div>
-
-              <div className="card" style={{ flex: 1, padding: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                <div style={{ backgroundColor: 'var(--c-wave)', color: 'white', padding: '0.75rem 1rem', display: 'grid', gridTemplateColumns: '40px 36px 60px 2fr 60px 80px 80px', fontWeight: 600, fontSize: '0.8rem', alignItems: 'center' }}>
-                  <div>Sl No</div><div>Img</div><div>Item</div><div>Item Description</div><div>Unit</div><div style={{textAlign:'right'}}>Avail Stock</div><div style={{textAlign:'right'}}>Veri Stock</div>
-                </div>
-                <div style={{ flex: 1, overflowY: 'auto' }}>
-                  {activeItem && (
-                    <div style={{ padding: '0.75rem 1rem', display: 'grid', gridTemplateColumns: '40px 36px 60px 2fr 60px 80px 80px', fontSize: '0.85rem', borderBottom: '1px solid var(--c-border)', backgroundColor: 'var(--c-bg)', alignItems: 'center' }}>
-                      <div style={{color:'var(--c-text-secondary)'}}>1</div>
-                      <div style={{ width: 28, height: 28, borderRadius: 6, overflow: 'hidden', background: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        {activeItem.image_url ? <img src={activeItem.image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <Image size={14} color="#94a3b8" />}
-                      </div>
-                      <div style={{fontWeight:600}}>{activeItem.code}</div>
-                      <div style={{color:'var(--c-olive-dark)'}}>{activeItem.name}</div>
-                      <div>{activeItem.unit || activeItem.pack}</div>
-                      <div style={{textAlign:'right', color:'var(--c-danger)'}}>{(activeItem.stock_quantity || 0).toFixed(3)}</div>
-                      <div style={{textAlign:'right'}}>
-                        <input type="number" defaultValue="10.000" style={{ width: '70px', padding: '0.2rem', textAlign: 'right', fontSize: '0.8rem' }} />
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </>
-          ) : (
-            <div className="card" style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '1rem', overflowY: 'auto' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--c-border)', paddingBottom: '0.5rem' }}>
-                <h3 style={{ fontSize: '1.2rem', color: 'var(--c-olive)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <Package size={20} /> Item Details
-                </h3>
-                <div style={{display: 'flex', gap: '1rem'}}>
-                  <button onClick={handleCreateNew} className="btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem', background: 'transparent', border: '1px solid var(--c-wave)', color: 'var(--c-wave)', borderRadius: '4px' }}>
-                    New Item
-                  </button>
-                  {activeItem?.id && (
-                    <button 
-                      onClick={deleteItem} 
-                      className="btn-danger" 
-                      style={{ padding: '0.4rem 1rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.5rem', background: '#fee2e2', border: '1px solid #f87171', color: '#b91c1c' }}
-                    >
-                      <Trash2 size={16} /> Delete
-                    </button>
-                  )}
-                  <button onClick={saveItem} className="btn-primary" style={{ padding: '0.4rem 1rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <Save size={16} /> Save Item
-                  </button>
-                </div>
-              </div>
-              
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '1rem' }}>
-                <div>
-                  <label style={{ fontSize: '0.75rem', color: 'var(--c-text-secondary)' }}>Item Code / Barcode</label>
-                  <div style={{ display: 'flex', gap: '0.5rem' }}>
-                    <input type="text" value={activeItem?.code || ''} onChange={e => handleActiveItemChange('code', e.target.value)} style={{ padding: '0.5rem', fontSize: '0.85rem', flex: 1 }} />
-                    <button onClick={() => setShowCamScanner(true)} title="Scan via Camera" style={{ width: 38, height: 38, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid var(--c-border)', background: 'var(--c-surface)', color: 'var(--c-brand)' }}>
-                      <Camera size={18} />
-                    </button>
-                  </div>
-                </div>
-                <div>
-                  <label style={{ fontSize: '0.75rem', color: 'var(--c-text-secondary)' }}>Item Description</label>
-                  <input type="text" value={activeItem?.name || ''} onChange={e => handleActiveItemChange('name', e.target.value)} style={{ padding: '0.5rem', fontSize: '0.85rem' }} />
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '1rem' }}>
-                <div>
-                  <label style={{ fontSize: '0.75rem', color: 'var(--c-text-secondary)' }}>Item Category *</label>
-                  <SearchableSelect 
-                    options={categories.map(c => c.name)}
-                    value={activeItem?.category || ''}
-                    onChange={val => handleActiveItemChange('category', val)}
-                    placeholder="Type or select..."
-                  />
-                </div>
-                <div>
-                  <label style={{ fontSize: '0.75rem', color: 'var(--c-text-secondary)' }}>Unit *</label>
-                  <SearchableSelect 
-                    options={units.map(u => u.name)}
-                    value={activeItem?.unit || ''}
-                    onChange={val => handleActiveItemChange('unit', val)}
-                    placeholder="Type or select Unit..."
-                  />
-                </div>
-                <div>
-                  <label style={{ fontSize: '0.75rem', color: 'var(--c-text-secondary)' }}>Pack Type</label>
-                  <SearchableSelect 
-                    options={packTypes.map(p => p.name)}
-                    value={activeItem?.pack || ''}
-                    onChange={val => handleActiveItemChange('pack', val)}
-                    placeholder="Type or select Pack..."
-                  />
-                </div>
-                <div>
-                  <label style={{ fontSize: '0.75rem', color: 'var(--c-text-secondary)' }}>Tax Category *</label>
-                  <SearchableSelect 
-                    options={taxes.map(t => t.name)}
-                    value={activeItem?.tax_category || ''}
-                    onChange={val => handleActiveItemChange('tax_category', val)}
-                    placeholder="Type or select Tax..."
-                  />
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
-                <div>
-                  <label style={{ fontSize: '0.75rem', color: 'var(--c-text-secondary)' }}>Item Cost</label>
-                  <input type="number" step="0.01" value={activeItem?.cost_price || 0} onChange={e => handleActiveItemChange('cost_price', e.target.value)} style={{ padding: '0.5rem', fontSize: '0.85rem', textAlign: 'right' }} />
-                </div>
-                <div>
-                  <label style={{ fontSize: '0.75rem', color: 'var(--c-text-secondary)' }}>MRP</label>
-                  <input type="number" step="0.01" value={activeItem?.mrp || 0} onChange={e => handleActiveItemChange('mrp', e.target.value)} style={{ padding: '0.5rem', fontSize: '0.85rem', textAlign: 'right' }} />
-                </div>
-                <div>
-                  <label style={{ fontSize: '0.75rem', color: 'var(--c-text-secondary)' }}>Selling Price</label>
-                  <input type="number" step="0.01" value={activeItem?.price || 0} onChange={e => handleActiveItemChange('price', e.target.value)} style={{ padding: '0.5rem', fontSize: '0.85rem', textAlign: 'right' }} />
-                </div>
-                <div>
-                  <label style={{ fontSize: '0.75rem', color: 'var(--c-text-secondary)' }}>Expiry Date</label>
-                  <input type="date" value={activeItem?.expiry_date || ''} onChange={e => handleActiveItemChange('expiry_date', e.target.value)} style={{ padding: '0.5rem', fontSize: '0.85rem' }} />
-                </div>
-              </div>
-
-              <div style={{ marginTop: '0.5rem' }}>
-                <label style={{ fontSize: '0.75rem', color: 'var(--c-text-secondary)', display: 'flex', alignItems: 'center', gap: '0.3rem', marginBottom: '0.5rem' }}>
-                  <Image size={14} /> Product Image
-                </label>
-                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                  <div style={{ width: 90, height: 90, borderRadius: 10, border: '2px dashed var(--c-border)', overflow: 'hidden', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc' }}>
-                    {activeItem?.image_url
-                      ? <img src={activeItem.image_url} alt="preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                      : <Image size={28} color="#cbd5e1" />
-                    }
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <label style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.4rem', padding: '0.5rem 1rem', background: 'var(--c-wave)', color: 'white', borderRadius: 6, fontSize: '0.85rem', fontWeight: 600, opacity: uploadingImage ? 0.6 : 1 }}>
-                      <Upload size={14} />
-                      {uploadingImage ? 'Uploading...' : 'Choose Image'}
-                      <input type="file" accept="image/*" style={{ display: 'none' }} disabled={uploadingImage} onChange={e => uploadImage(e.target.files?.[0])} />
-                    </label>
-                    {activeItem?.image_url && (
-                      <button onClick={() => handleActiveItemChange('image_url', null)} style={{ marginLeft: '0.5rem', fontSize: '0.75rem', color: 'var(--c-danger)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>Remove</button>
-                    )}
-                    <p style={{ fontSize: '0.72rem', color: 'var(--c-text-secondary)', marginTop: '0.35rem' }}>PNG, JPG, WEBP. Image will appear on POS cards.</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
+        {/* Category Pill Strip */}
+        <div style={{ padding: '1.25rem 1.5rem 0.5rem', display: 'flex', gap: '0.6rem', overflowX: 'auto', scrollbarWidth: 'none', borderBottom: '1px solid #f1f5f9' }}>
+          {['ALL', ...categories].map(cat => (
+            <button 
+              key={cat} 
+              onClick={() => setSelectedCategory(cat)}
+              style={{
+                padding: '0.5rem 1.25rem',
+                borderRadius: '999px',
+                fontSize: '0.8rem',
+                fontWeight: 700,
+                whiteSpace: 'nowrap',
+                transition: 'all 0.2s',
+                backgroundColor: selectedCategory === cat ? 'var(--c-text-primary)' : '#f1f5f9',
+                color: selectedCategory === cat ? 'white' : '#64748b',
+                border: 'none',
+                cursor: 'pointer',
+                boxShadow: selectedCategory === cat ? '0 4px 6px -1px rgba(0, 0, 0, 0.1)' : 'none'
+              }}
+            >
+              {cat}
+            </button>
+          ))}
         </div>
 
-        {/* RIGHT PANE */}
-        <div style={{ flex: '1 1 45%', display: 'flex', flexDirection: 'column', gap: '1rem', minWidth: 0 }}>
-          <div className="card" style={{ padding: '1rem', flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-              <select 
-                value={searchType} 
-                onChange={e => setSearchType(e.target.value)} 
-                style={{ padding: '0.5rem', fontSize: '0.85rem', flex: 1 }}
-              >
-                <option value="ItemDescription">ItemDescription</option>
-                <option value="ItemCode">ItemCode</option>
-                <option value="ItemCategory">ItemCategory</option>
-              </select>
-              <div style={{ position: 'relative', flex: 2 }}>
-                <Search size={16} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--c-wave)' }} />
-                <input 
-                  ref={searchInputRef}
-                  type="text" 
-                  placeholder="Search and Scan..." 
-                  value={searchTerm}
-                  onChange={e => setSearchTerm(e.target.value)}
-                  onKeyDown={handleSearchKeyDown}
-                  style={{ padding: '0.5rem 0.5rem 0.5rem 2rem', fontSize: '0.85rem', width: '100%' }} 
-                />
-              </div>
-            </div>
-
-            <div style={{ flex: 1, border: '1px solid var(--c-border)', overflowY: 'auto' }}>
-              <div style={{ backgroundColor: 'var(--c-olive)', color: 'white', display: 'grid', gridTemplateColumns: '40px 50px 2fr 1.5fr 80px 70px', padding: '0.5rem', fontSize: '0.75rem', fontWeight: 600, position: 'sticky', top: 0, zIndex: 5, alignItems: 'center' }}>
-                <div>Pic</div><div>Code</div><div>Description</div><div>Category</div><div>Expiry</div><div>Stock</div>
-              </div>
-              
-              {loading && <div style={{padding: '1rem', color: 'var(--c-text-secondary)', fontSize: '0.8rem'}}>Loading items...</div>}
-              {!loading && items.length === 0 && <div style={{padding: '1rem', color: 'var(--c-text-secondary)', fontSize: '0.8rem'}}>No data found.</div>}
-              
-              {!loading && items.filter(it => {
-                 const s = (searchTerm || '').toLowerCase();
-                 if (!s) return true;
-                 if (searchType === 'ItemDescription') return (it.name || '').toLowerCase().includes(s) || (it.code || '').toLowerCase().includes(s);
-                 if (searchType === 'ItemCode') return (it.code || '').toLowerCase().includes(s);
-                 if (searchType === 'ItemCategory') return (it.category || '').toLowerCase().includes(s);
-                 return true;
-              }).map((item) => {
-                const isExpiring = item.expiry_date && (new Date(item.expiry_date) - new Date()) / (1000 * 60 * 60 * 24) <= 10;
-                const isLow = (item.stock_quantity || 0) <= (item.low_stock_alert || 5);
-                
-                return (
-                  <div 
-                    key={item.id} 
-                    onClick={() => setActiveItem(item)}
-                    style={{ 
-                      display: 'grid', gridTemplateColumns: '40px 50px 2fr 1.5fr 80px 70px', padding: '0.5rem', fontSize: '0.75rem', borderBottom: '1px solid var(--c-border)', cursor: 'pointer', alignItems: 'center',
-                      backgroundColor: activeItem && activeItem.id === item.id 
-                        ? 'var(--c-wave-light)' 
-                        : (isExpiring ? '#fff1f2' : (isLow ? '#fff7ed' : 'transparent')),
-                      transition: 'all 0.15s'
-                    }}
-                  >
-                    <div style={{ width: 24, height: 24, borderRadius: 4, overflow: 'hidden', background: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      {item.image_url ? <img src={item.image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <Image size={12} color="#94a3b8" />}
-                    </div>
-                    <div style={{fontWeight:600}}>{item.code}</div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                      {item.name}
-                      {isExpiring && <AlertTriangle size={12} color="var(--c-danger)" title="Expiring Soon!" />}
-                      {isLow && <Package size={12} color="var(--c-danger)" title="Low Stock!" />}
-                    </div>
-                    <div style={{color:'var(--c-text-secondary)'}}>{item.category}</div>
-                    <div style={{ color: isExpiring ? 'var(--c-danger)' : 'inherit', fontWeight: isExpiring ? 700 : 400 }}>
-                      {item.expiry_date || '--'}
-                    </div>
-                    <div style={{ textAlign: 'right', fontWeight: isLow ? 700 : 400, color: isLow ? 'var(--c-danger)' : 'inherit' }}>
-                      {(item.stock_quantity || 0).toFixed(2)}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-
-      </div>
-      
-      {/* ─── OVERLAY: Camera Barcode Scanner */}
-      {showCamScanner && (
-        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(248,250,252,0.92)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 12 }}>
-          <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2rem', padding: '3.5rem', boxShadow: 'var(--shadow-lg)', width: 440 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', width: '100%' }}>
-              <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Camera size={20} /> Camera Scanner
-              </h2>
-              <button onClick={() => { setShowCamScanner(false); setCamError(''); }} style={{ color: 'var(--c-text-secondary)', background: 'none', border: 'none', cursor: 'pointer' }}><X size={24} /></button>
-            </div>
-            
-            <div style={{ borderRadius: 12, overflow: 'hidden', background: '#000', aspectRatio: '1/1', width: '100%', position: 'relative' }}>
-              <Scanner
-                onScan={onCamScan}
-                onError={(err) => {
-                  console.error('Scanner err:', err);
-                  let msg = 'Could not start camera. ';
-                  if (err?.name === 'NotAllowedError') msg += 'Please allow camera permissions.';
-                  else if (err?.name === 'NotFoundError') msg += 'No camera found.';
-                  else msg += err?.message || 'Error.';
-                  setCamError(msg);
-                }}
-                constraints={{ facingMode: 'environment' }}
-                scanDelay={300}
-                formats={['qr_code', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf']}
-                styles={{ container: { width: '100%', height: '100%' } }}
-                components={{
-                  audio: false,
-                  torch: true,
-                  onOff: true,
-                  finder: true,
-                }}
+        {/* Toolbar */}
+        <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--c-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fcfcfc', gap: '1.5rem', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '1rem', flex: 1, minWidth: '300px', alignItems: 'center' }}>
+            <div style={{ position: 'relative', flex: 1 }}>
+              <Search size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--c-text-secondary)' }} />
+              <input 
+                type="text" 
+                placeholder="Search by name, code or category..." 
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                style={{ paddingLeft: '2.75rem', width: '100%', borderRadius: '12px' }}
               />
-              {camError && (
-                <div style={{ position: 'absolute', bottom: '1rem', left: '1rem', right: '1rem', background: 'var(--c-danger)', color: 'white', fontWeight: 700, padding: '0.75rem', borderRadius: 8, textAlign: 'center', boxShadow: '0 4px 12px rgba(0,0,0,0.2)', zIndex: 10 }}>
-                  {camError}
-                </div>
-              )}
             </div>
+
+            {(selectedCategory !== 'ALL' || statusFilter !== 'ALL') && (
+              <button 
+                onClick={() => { setSelectedCategory('ALL'); setStatusFilter('ALL'); }}
+                style={{ 
+                  fontSize: '0.8rem', 
+                  fontWeight: 700, 
+                  color: '#b91c1c', 
+                  background: '#fef2f2', 
+                  border: '1px solid #fecaca', 
+                  borderRadius: '10px',
+                  padding: '0.5rem 1rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  whiteSpace: 'nowrap',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.background = '#fee2e2';
+                  e.currentTarget.style.borderColor = '#fca5a5';
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.background = '#fef2f2';
+                  e.currentTarget.style.borderColor = '#fecaca';
+                }}
+              >
+                <X size={14} /> Clear Filters
+              </button>
+            )}
+          </div>
+          
+          <button onClick={() => openEditModal()} className="btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem 1.5rem', borderRadius: '12px' }}>
+            <Plus size={20} /> Add New Product
+          </button>
+        </div>
+
+        {/* Table */}
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+            <thead style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid var(--c-border)' }}>
+              <tr>
+                <th style={{ padding: '1.25rem 1.5rem', fontSize: '0.85rem', fontWeight: 800, color: 'var(--c-text-secondary)', width: '80px' }}>PIC</th>
+                <th style={{ padding: '1.25rem 1.5rem', fontSize: '0.85rem', fontWeight: 800, color: 'var(--c-text-secondary)' }}>PRODUCT DETAILS</th>
+                <th style={{ padding: '1.25rem 1.5rem', fontSize: '0.85rem', fontWeight: 800, color: 'var(--c-text-secondary)' }}>CATEGORY</th>
+                <th style={{ padding: '1.25rem 1.5rem', fontSize: '0.85rem', fontWeight: 800, color: 'var(--c-text-secondary)', textAlign: 'center' }}>STOCK</th>
+                <th style={{ padding: '1.25rem 1.5rem', fontSize: '0.85rem', fontWeight: 800, color: 'var(--c-text-secondary)', textAlign: 'right' }}>MRP</th>
+                <th style={{ padding: '1.25rem 1.5rem', fontSize: '0.85rem', fontWeight: 800, color: 'var(--c-text-secondary)', textAlign: 'right' }}>ACTIONS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan="6" style={{ padding: '4rem', textAlign: 'center', color: 'var(--c-text-secondary)' }}>Loading inventory data...</td></tr>
+              ) : items
+                .filter(it => (selectedCategory === 'ALL' || it.category === selectedCategory))
+                .filter(it => {
+                  if (statusFilter === 'LOW') return it.stock_quantity > 0 && it.stock_quantity <= (it.low_stock_alert || 5);
+                  if (statusFilter === 'OUT_OF_STOCK') return it.stock_quantity <= 0;
+                  if (statusFilter === 'EXPIRED') return it.expiry_date && new Date(it.expiry_date) < new Date();
+                  return true;
+                })
+                .filter(it => !searchTerm || it.name.toLowerCase().includes(searchTerm.toLowerCase()) || it.code?.toLowerCase().includes(searchTerm.toLowerCase()))
+                .map((it) => {
+                  const isLow = it.stock_quantity <= (it.low_stock_alert || 5);
+                  const isExpired = it.expiry_date && new Date(it.expiry_date) < new Date();
+                  
+                  return (
+                    <tr key={it.id} style={{ borderBottom: '1px solid var(--c-border)', transition: 'background 0.2s', backgroundColor: isExpired ? '#fff1f2' : (isLow ? '#fffbeb' : 'transparent') }}>
+                      <td style={{ padding: '1rem 1.5rem' }}>
+                        {it.image_url ? (
+                          <img src={it.image_url} alt="" style={{ width: '48px', height: '48px', borderRadius: '10px', objectFit: 'cover', border: '1px solid var(--c-border)' }} />
+                        ) : (
+                          <div style={{ width: '48px', height: '48px', borderRadius: '10px', backgroundColor: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>
+                            <Package size={20} />
+                          </div>
+                        )}
+                      </td>
+                      <td style={{ padding: '1rem 1.5rem' }}>
+                        <div style={{ fontWeight: 700, color: 'var(--c-text-primary)', fontSize: '1rem' }}>{it.name}</div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--c-text-secondary)', display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '2px' }}>
+                          <Barcode size={12} /> {it.code || 'NO CODE'} • {it.unit || 'NOS'}
+                        </div>
+                      </td>
+                      <td style={{ padding: '1rem 1.5rem' }}>
+                        <span style={{ padding: '0.4rem 0.8rem', borderRadius: '8px', backgroundColor: '#f1f5f9', fontSize: '0.75rem', fontWeight: 700, color: '#475569' }}>
+                          {it.category}
+                        </span>
+                      </td>
+                      <td style={{ padding: '1rem 1.5rem', textAlign: 'center' }}>
+                        <div style={{ fontWeight: 800, fontSize: '1.1rem', color: isLow || isExpired ? '#ef4444' : '#10b981' }}>
+                          {Math.round(it.stock_quantity)}
+                        </div>
+                        {it.expiry_date && (
+                          <div style={{ fontSize: '0.7rem', fontWeight: 600, color: isExpired ? '#ef4444' : '#64748b', marginTop: '2px' }}>
+                            Exp: {it.expiry_date}
+                          </div>
+                        )}
+                      </td>
+                      <td style={{ padding: '1rem 1.5rem', textAlign: 'right', fontWeight: 800, fontSize: '1rem' }}>
+                        ₹{Math.round(it.mrp)}
+                      </td>
+                      <td style={{ padding: '1rem 1.5rem', textAlign: 'right' }}>
+                        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                          <button onClick={() => openEditModal(it)} className="btn-secondary" style={{ padding: '0.5rem', borderRadius: '10px', color: 'var(--c-brand)' }} title="Edit">
+                            <Edit3 size={18} />
+                          </button>
+                          <button onClick={() => handleDelete(it.id, it.name)} className="btn-secondary" style={{ padding: '0.5rem', borderRadius: '10px', color: 'var(--c-danger)' }} title="Delete">
+                            <Trash2 size={18} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+            </tbody>
+          </table>
+          {items.length === 0 && !loading && (
+            <div style={{ padding: '5rem', textAlign: 'center', color: 'var(--c-text-secondary)' }}>
+              <Package size={48} style={{ marginBottom: '1rem', opacity: 0.3 }} />
+              <div>No products found. Start by adding a new product.</div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ─── EDIT MODAL ─── */}
+      {isModalOpen && activeItem && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem' }}>
+          <div className="card" style={{ width: '100%', maxWidth: '800px', maxHeight: '90vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', position: 'relative', animation: 'slideUp 0.3s ease-out' }}>
             
-            <p style={{ textAlign: 'center', color: 'var(--c-text-secondary)', fontSize: '0.9rem', marginTop: '1.5rem', marginBottom: 0 }}>
-              Point your camera at a product barcode to scan it automatically.
-            </p>
+            {/* Modal Header */}
+            <div style={{ padding: '1.5rem 2rem', borderBottom: '1px solid var(--c-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, backgroundColor: 'white', zIndex: 10 }}>
+              <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 900 }}>{activeItem.id ? 'Edit Product' : 'Add New Product'}</h2>
+              <button onClick={() => setIsModalOpen(false)} style={{ color: 'var(--c-text-secondary)', padding: '0.5rem' }}><X size={24} /></button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: '2rem', display: 'grid', gridTemplateColumns: '1.2fr 2fr', gap: '2.5rem' }}>
+              
+              {/* Left Column: Image & Basic */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ width: '100%', aspectRatio: '1/1', borderRadius: '24px', backgroundColor: '#f8fafc', border: '2px dashed var(--c-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', position: 'relative', marginBottom: '1rem' }}>
+                    {activeItem.image_url ? (
+                      <img src={activeItem.image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : (
+                      <div style={{ textAlign: 'center', color: '#94a3b8' }}>
+                        <Camera size={48} style={{ marginBottom: '0.5rem' }} />
+                        <div style={{ fontSize: '0.75rem', fontWeight: 600 }}>Click to Upload</div>
+                      </div>
+                    )}
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      onChange={e => uploadImage(e.target.files[0])}
+                      style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }}
+                    />
+                  </div>
+                  <button onClick={() => setShowCamScanner(!showCamScanner)} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', fontSize: '0.85rem', fontWeight: 700, padding: '0.75rem', borderRadius: '12px', border: '1px solid var(--c-border)', background: 'white' }}>
+                    <Barcode size={18} /> {showCamScanner ? 'Close Scanner' : 'Scan Barcode'}
+                  </button>
+                </div>
+
+                {showCamScanner && (
+                  <div style={{ borderRadius: '16px', overflow: 'hidden', height: '200px' }}>
+                    <Scanner onScan={(res) => {
+                      if (res?.[0]) {
+                        setActiveItem(prev => ({ ...prev, code: res[0].rawValue }));
+                        setShowCamScanner(false);
+                      }
+                    }} />
+                  </div>
+                )}
+
+                <div>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--c-text-secondary)', display: 'block', marginBottom: '0.5rem' }}>Barcode / Product Code</label>
+                  <input type="text" value={activeItem.code} onChange={e => setActiveItem({...activeItem, code: e.target.value})} placeholder="Scan or enter code" />
+                </div>
+              </div>
+
+              {/* Right Column: Form Fields */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                <div style={{ gridColumn: 'span 2' }}>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--c-text-secondary)', display: 'block', marginBottom: '0.5rem' }}>Product Name *</label>
+                  <input type="text" value={activeItem.name} onChange={e => setActiveItem({...activeItem, name: e.target.value})} placeholder="Enter product name" style={{ fontSize: '1.1rem', fontWeight: 600 }} />
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                  <div>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--c-text-secondary)', display: 'block', marginBottom: '0.5rem' }}>Category</label>
+                    <select value={activeItem.category} onChange={e => setActiveItem({...activeItem, category: e.target.value})}>
+                      {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--c-text-secondary)', display: 'block', marginBottom: '0.5rem' }}>Unit / Pack</label>
+                    <select value={activeItem.unit} onChange={e => setActiveItem({...activeItem, unit: e.target.value})}>
+                      {units.map(u => <option key={u} value={u}>{u}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
+                  <div>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--c-text-secondary)', display: 'block', marginBottom: '0.5rem' }}>Cost Price</label>
+                    <input type="number" value={activeItem.cost_price} onChange={e => setActiveItem({...activeItem, cost_price: parseFloat(e.target.value)})} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--c-text-secondary)', display: 'block', marginBottom: '0.5rem' }}>Selling Price</label>
+                    <input type="number" value={activeItem.rate} onChange={e => setActiveItem({...activeItem, rate: parseFloat(e.target.value)})} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--c-text-secondary)', display: 'block', marginBottom: '0.5rem' }}>MRP</label>
+                    <input type="number" value={activeItem.mrp} onChange={e => setActiveItem({...activeItem, mrp: parseFloat(e.target.value)})} />
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
+                   <div>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--c-text-secondary)', display: 'block', marginBottom: '0.5rem' }}>Current Stock</label>
+                    <input type="number" value={activeItem.stock_quantity} onChange={e => setActiveItem({...activeItem, stock_quantity: parseFloat(e.target.value)})} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--c-text-secondary)', display: 'block', marginBottom: '0.5rem' }}>Low Stock Alert</label>
+                    <input type="number" value={activeItem.low_stock_alert} onChange={e => setActiveItem({...activeItem, low_stock_alert: parseFloat(e.target.value)})} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--c-text-secondary)', display: 'block', marginBottom: '0.5rem' }}>Expiry Date</label>
+                    <input type="date" value={activeItem.expiry_date} onChange={e => setActiveItem({...activeItem, expiry_date: e.target.value})} />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{ padding: '1.5rem 2rem', borderTop: '1px solid var(--c-border)', display: 'flex', gap: '1rem', backgroundColor: '#f8fafc', position: 'sticky', bottom: 0 }}>
+              <button onClick={() => setIsModalOpen(false)} style={{ flex: 1, padding: '0.85rem', borderRadius: '12px', border: '1px solid var(--c-border)', background: 'white', fontWeight: 700 }}>Cancel</button>
+              <button onClick={handleSave} disabled={isSaving} className="btn-primary" style={{ flex: 2, padding: '0.85rem', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.75rem' }}>
+                <Save size={20} /> {isSaving ? 'Saving Product...' : 'Save Product Details'}
+              </button>
+            </div>
           </div>
         </div>
       )}
+
+      <style>{`
+        @keyframes slideUp {
+          from { opacity: 0; transform: translateY(40px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        table tr:hover {
+          background-color: #f1f5f9;
+        }
+      `}</style>
     </div>
   );
 };

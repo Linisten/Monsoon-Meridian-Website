@@ -4,6 +4,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { Scanner } from '@yudiel/react-qr-scanner';
 import { supabase } from '../config/supabaseClient';
 import { setScannerHandler, clearScannerHandler } from '../utils/keyboardManager';
+import { useConfirm } from '../context/ConfirmContext';
 import UpiPaymentModal from '../components/UpiPaymentModal';
 import SearchableSelect from '../components/SearchableSelect';
 import { printReceipt } from '../utils/printService';
@@ -200,6 +201,7 @@ const Sales = () => {
   const [sysSettings,      setSysSettings]      = useState({});
   const [isProcessing,     setIsProcessing]     = useState(false);
   const [isPrinting,       setIsPrinting]       = useState(false);
+  const { confirm, alert } = useConfirm();
   const barcodeInputRef = useRef(null);
 
   useEffect(() => { fetchItems(); fetchSettings(); fetchCustomers(); fetchCategories(); }, []);
@@ -339,7 +341,7 @@ const Sales = () => {
       setTimeout(() => barcodeInputRef.current?.focus(), 0);
       return true;
     } else {
-      alert('Product Not Found: ' + code);
+      alert('Product Not Found: ' + code, 'error');
       setBarcodeInput('');
       setTimeout(() => barcodeInputRef.current?.focus(), 0);
       return false;
@@ -376,13 +378,13 @@ const Sales = () => {
 
   // ── CASH ─────────────────────────────────────────────────────────────────
   const handleCash = () => {
-    if (!cart.length) return alert('Cart is empty!');
+    if (!cart.length) return alert('Cart is empty!', 'error');
     persistSale('CASH');
   };
 
   // ── UPI / GPay (Manual QR) ───────────────────────────────────────────────
   const handleGpay = () => {
-    if (!cart.length) return alert('Cart is empty!');
+    if (!cart.length) return alert('Cart is empty!', 'error');
     setShowUpi(true);
   };
 
@@ -392,9 +394,15 @@ const Sales = () => {
   };
 
   // ── Manual Card ──────────────────────────────────────────────────────────
-  const handleCard = () => {
-    if (!cart.length) return alert('Cart is empty!');
-    if (!confirm('Record this as a Card payment?')) return;
+  const handleCard = async () => {
+    if (!cart.length) return alert('Cart is empty!', 'error');
+    const isConfirmed = await confirm({
+      title: 'Card Payment',
+      message: 'Confirm that the card payment was successful on the external machine?',
+      confirmText: 'Yes, Payment Received',
+      cancelText: 'No'
+    });
+    if (!isConfirmed) return;
     persistSale('CARD_MANUAL');
   };
 
@@ -599,9 +607,20 @@ const Sales = () => {
             </div>
           </div>
           <div style={{ width: 2, background: 'var(--c-border)' }} />
-          <div style={{ flex: 1, textAlign: 'right' }}>
-            <div style={{ fontSize: '1rem', color: 'var(--c-text-secondary)', fontWeight: 700 }}>NET AMOUNT</div>
-            <div style={{ fontSize: '3rem', fontWeight: 900, lineHeight: 1, color: 'var(--c-text-primary)' }}>₹{netAmount.toFixed(2)}</div>
+          <div style={{ 
+            flex: 1, 
+            textAlign: 'right', 
+            backgroundColor: '#2e1065', 
+            margin: '-1.5rem', 
+            marginLeft: '0', 
+            padding: '1.5rem 2rem', 
+            display: 'flex', 
+            flexDirection: 'column', 
+            justifyContent: 'center',
+            color: 'white'
+          }}>
+            <div style={{ fontSize: '1rem', color: '#c4b5fd', fontWeight: 800, letterSpacing: '0.05em' }}>NET AMOUNT</div>
+            <div style={{ fontSize: '3.2rem', fontWeight: 900, lineHeight: 1 }}>₹{Math.round(netAmount)}</div>
           </div>
         </div>
       </div>

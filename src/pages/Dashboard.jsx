@@ -31,14 +31,33 @@ const Dashboard = () => {
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
     
-    // 1. Fetch This Month's Sales
-    const { data: sales } = await supabase
+    // 1. Fetch This Month's Sales with Items
+    const { data: salesData } = await supabase
       .from('sales')
-      .select('total_amount')
+      .select('total_amount, items_json, discount_amount')
       .gte('created_at', startOfMonth);
-    const totalSales = (sales || []).reduce((acc, curr) => acc + (curr.total_amount || 0), 0);
     
-    // 2. Fetch This Month's Purchases
+    let totalSales = 0;
+    let totalProfit = 0;
+
+    (salesData || []).forEach(sale => {
+      totalSales += (sale.total_amount || 0);
+      
+      const items = sale.items_json || [];
+      let saleCost = 0;
+      items.forEach(it => {
+        const qty = it.qty || 0;
+        const cost = it.cost_price || 0;
+        saleCost += (qty * cost);
+      });
+
+      // Gross Profit = (Total Amount - Discount) - Cost
+      // Note: total_amount in DB is already after discount, so we use it directly
+      // We subtract the cost from the revenue of this sale
+      totalProfit += ((sale.total_amount || 0) - saleCost);
+    });
+    
+    // 2. Fetch This Month's Purchases (for display only)
     const { data: purchases } = await supabase
       .from('purchases')
       .select('total_amount')
@@ -54,7 +73,7 @@ const Dashboard = () => {
     setStats({
       totalSales,
       totalPurchases,
-      grossProfit: totalSales - totalPurchases,
+      grossProfit: totalProfit,
       stockValue
     });
 
@@ -114,7 +133,7 @@ const Dashboard = () => {
       <div>
         <span style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--c-text-secondary)', marginBottom: '0.25rem' }}>{label}</span>
         <span style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a' }}>
-          {loading ? '...' : (isCurrency ? `₹ ${value.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : value)}
+          {loading ? '...' : (isCurrency ? `₹ ${Math.round(value).toLocaleString('en-IN')}` : Math.round(value))}
         </span>
       </div>
     </div>
@@ -130,28 +149,32 @@ const Dashboard = () => {
           <div style={{ color: 'var(--c-info)' }}><IndianRupee size={32} /></div>
           <div>
             <div style={{ fontSize: '0.8rem', color: 'var(--c-text-secondary)', fontWeight: 600 }}>This Month's Sales</div>
-            <div style={{ fontSize: '1.5rem', fontWeight: 800 }}>{loading ? '...' : `₹${stats.totalSales.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`}</div>
+            <div style={{ fontSize: '1.5rem', fontWeight: 800 }}>{loading ? '...' : `₹${Math.round(stats.totalSales).toLocaleString('en-IN')}`}</div>
           </div>
         </div>
         <div className="card" style={{ padding: '1.5rem', display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
           <div style={{ color: 'var(--c-success)' }}><ShoppingCart size={32} /></div>
           <div>
             <div style={{ fontSize: '0.8rem', color: 'var(--c-text-secondary)', fontWeight: 600 }}>This Month's Purchases</div>
-            <div style={{ fontSize: '1.5rem', fontWeight: 800 }}>{loading ? '...' : `₹${stats.totalPurchases.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`}</div>
+            <div style={{ fontSize: '1.5rem', fontWeight: 800 }}>{loading ? '...' : `₹${Math.round(stats.totalPurchases).toLocaleString('en-IN')}`}</div>
           </div>
         </div>
         <div className="card" style={{ padding: '1.5rem', display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-          <div style={{ color: 'var(--c-wave)' }}><TrendingUp size={32} /></div>
+          <div style={{ color: stats.grossProfit >= 0 ? 'var(--c-success)' : 'var(--c-danger)' }}>
+            {stats.grossProfit >= 0 ? <TrendingUp size={32} /> : <ArrowUpCircle size={32} style={{ transform: 'rotate(180deg)' }} />}
+          </div>
           <div>
             <div style={{ fontSize: '0.8rem', color: 'var(--c-text-secondary)', fontWeight: 600 }}>Monthly Gross Profit</div>
-            <div style={{ fontSize: '1.5rem', fontWeight: 800 }}>{loading ? '...' : `₹${stats.grossProfit.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`}</div>
+            <div style={{ fontSize: '1.5rem', fontWeight: 800, color: stats.grossProfit >= 0 ? 'var(--c-success)' : 'var(--c-danger)' }}>
+              {loading ? '...' : `₹${Math.round(stats.grossProfit).toLocaleString('en-IN')}`}
+            </div>
           </div>
         </div>
         <div className="card" style={{ padding: '1.5rem', display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
           <div style={{ color: 'var(--c-earth)' }}><Package size={32} /></div>
           <div>
             <div style={{ fontSize: '0.8rem', color: 'var(--c-text-secondary)', fontWeight: 600 }}>Current Stock Value</div>
-            <div style={{ fontSize: '1.5rem', fontWeight: 800 }}>{loading ? '...' : `₹${stats.stockValue.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`}</div>
+            <div style={{ fontSize: '1.5rem', fontWeight: 800 }}>{loading ? '...' : `₹${Math.round(stats.stockValue).toLocaleString('en-IN')}`}</div>
           </div>
         </div>
       </div>

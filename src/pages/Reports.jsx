@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Printer, Download, Filter, TrendingUp, ShoppingCart, Package, DollarSign, X } from 'lucide-react';
 import { supabase } from '../config/supabaseClient';
+import { useConfirm } from '../context/ConfirmContext';
 
 const Reports = () => {
   const [reportType, setReportType] = useState('sales');
@@ -12,6 +13,7 @@ const Reports = () => {
   const [dateTo,   setDateTo]   = useState(new Date().toISOString().split('T')[0]);
   const [taxRate,  setTaxRate]  = useState(5);
   const [activeRecord, setActiveRecord] = useState(null);
+  const { confirm, alert } = useConfirm();
 
   const formatItemName = (name) => {
     const max = 22; // consistent with bill layout
@@ -49,6 +51,30 @@ const Reports = () => {
   const totalPurchases = filteredPurchases.reduce((s, r) => s + (r.total_amount || 0), 0);
   const totalStock     = itemsData.reduce((s, i) => s + (i.stock_quantity || 0) * (i.price || 0), 0);
   const profit         = totalSales - totalPurchases;
+
+  const itemWiseSales = (() => {
+    const summary = {};
+    filteredSales.forEach(sale => {
+      const items = sale.items_json || [];
+      items.forEach(it => {
+        const key = it.id || it.name;
+        if (!summary[key]) {
+          summary[key] = { 
+            name: it.name, 
+            code: it.code || '—',
+            qty: 0, 
+            revenue: 0,
+            category: it.category || 'General'
+          };
+        }
+        const q = Number(it.qty) || 0;
+        const r = Number(it.price || it.rate || 0);
+        summary[key].qty += q;
+        summary[key].revenue += (q * r);
+      });
+    });
+    return Object.values(summary).sort((a, b) => b.qty - a.qty);
+  })();
 
   const printReport = () => {
     let tableHTML = '';
@@ -120,18 +146,37 @@ const Reports = () => {
           </tfoot>
         </table>`;
     } else if (reportType === 'tax') {
-      const taxable = totalSales / (1 + taxRate / 100);
-      const gst = totalSales - taxable;
+      // Use actual tax data if available, otherwise fallback to 0 since user says they don't use tax
+      const totalTaxCollected = filteredSales.reduce((s, r) => s + (r.tax_amount || 0), 0);
+      const taxableSales = totalSales - totalTaxCollected;
+      
       tableHTML = `
         <h2>GST / Tax Summary</h2>
         <p>Period: ${dateRange} &nbsp;|&nbsp; Generated: ${now}</p>
         <table>
           <thead><tr><th>Metric</th><th style="text-align:right">Value (₹)</th></tr></thead>
           <tbody>
-            <tr><td>Total Sales</td><td style="text-align:right">${totalSales.toFixed(2)}</td></tr>
-            <tr><td>Taxable Sales (@ ${taxRate}%)</td><td style="text-align:right">${taxable.toFixed(2)}</td></tr>
-            <tr><td>GST Collected</td><td style="text-align:right;font-weight:700">${gst.toFixed(2)}</td></tr>
+            <tr><td>Total Sales (Gross)</td><td style="text-align:right">${Math.round(totalSales)}</td></tr>
+            <tr><td>Actual Tax Collected</td><td style="text-align:right;font-weight:700">${Math.round(totalTaxCollected)}</td></tr>
+            <tr><td>Taxable Amount (Net)</td><td style="text-align:right">${Math.round(taxableSales)}</td></tr>
             <tr><td>Total Transactions</td><td style="text-align:right">${filteredSales.length}</td></tr>
+          </tbody>
+        </table>`;
+    } else if (reportType === 'items-sales') {
+      tableHTML = `
+        <h2>Fast Selling Items (Sales Summary)</h2>
+        <p>Period: ${dateRange} &nbsp;|&nbsp; Generated: ${now}</p>
+        <table>
+          <thead><tr><th>#</th><th>Item Name</th><th>Category</th><th style="text-align:right">Qty Sold</th><th style="text-align:right">Revenue (₹)</th></tr></thead>
+          <tbody>
+            ${itemWiseSales.map((r, i) => `
+              <tr>
+                <td>${i + 1}</td>
+                <td>${r.name}</td>
+                <td>${r.category}</td>
+                <td style="text-align:right;font-weight:700">${r.qty.toFixed(2)}</td>
+                <td style="text-align:right;font-weight:700">${r.revenue.toFixed(2)}</td>
+              </tr>`).join('')}
           </tbody>
         </table>`;
     }
@@ -226,6 +271,55 @@ const Reports = () => {
         { header: 'Metric', key: 'label' },
         { header: 'Value', key: 'value' }
       ], 'tax_summary_report.csv');
+    } else if (reportType === 'items-sales') {
+      exportCSV(itemWiseSales, [
+        { header: 'Item Name', key: 'name' },
+        { header: 'Category', key: 'category' },
+        { header: 'Qty Sold', formatter: r => r.qty.toFixed(2) },
+        { header: 'Revenue', formatter: r => r.revenue.toFixed(2) }
+      ], 'fast_selling_products.csv');
+    }
+  };
+  
+  const handleDeleteSale = async (sale) => {
+    const isConfirmed = await confirm({
+      title: 'Delete Sale?',
+      message: 'This will REVERSE the stock (add items back to inventory) and permanently remove the record. This action cannot be undone.',
+      type: 'danger',
+      confirmText: 'Delete Sale',
+      cancelText: 'Keep Sale'
+    });
+    
+    if (!isConfirmed) return;
+    
+    setLoading(true);
+    try {
+      const items = sale.items_json || [];
+      
+      // 1. Reverse stock for each item
+      for (const it of items) {
+        if (it.id) {
+          // Using RPC if available, or manual update
+          await supabase.rpc('handle_stock_update', { 
+            item_id: it.id, 
+            quantity_change: Number(it.qty) // Adding back the sold quantity
+          });
+        }
+      }
+
+      // 2. Delete the sale
+      const { error } = await supabase.from('sales').delete().eq('id', sale.id);
+      
+      if (error) throw error;
+      
+      await alert('Sale deleted and stock reversed successfully.', 'success');
+      setActiveRecord(null);
+      fetchAll(); // Refresh all data
+    } catch (err) {
+      console.error('Delete error:', err);
+      await alert('Failed to delete sale: ' + err.message, 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -245,11 +339,10 @@ const Reports = () => {
     <div style={{ height: 'calc(100vh - 120px)', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
       
       {/* Summary KPI Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
         <StatCard icon={TrendingUp}    label="Total Sales"      value={totalSales}     color="var(--c-success)" />
         <StatCard icon={ShoppingCart}  label="Total Purchases"  value={totalPurchases} color="var(--c-info)"    />
         <StatCard icon={DollarSign}    label="Gross Profit"     value={profit}         color={profit >= 0 ? 'var(--c-success)' : 'var(--c-danger)'} />
-        <StatCard icon={Package}       label="Stock Value"      value={totalStock}     color="var(--c-warning)" />
       </div>
 
       {/* Controls bar */}
@@ -257,8 +350,8 @@ const Reports = () => {
         <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
           <select value={reportType} onChange={e => setReportType(e.target.value)} style={{ width: 220 }}>
             <option value="sales">Sales Report</option>
+            <option value="items-sales">Fast Selling Items</option>
             <option value="purchase">Purchase Report</option>
-            <option value="inventory">Inventory Valuation</option>
             <option value="tax">GST / Tax Summary</option>
           </select>
           <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} />
@@ -283,8 +376,8 @@ const Reports = () => {
         <div style={{ backgroundColor: '#f1f5f9', padding: '1rem 1.5rem', borderBottom: '1px solid var(--c-border)' }}>
           <h3 style={{ margin: 0, fontWeight: 800, fontSize: '1.1rem', color: 'var(--c-text-primary)' }}>
             {reportType === 'sales' && `Sales Report — ${filteredSales.length} transactions`}
+            {reportType === 'items-sales' && `Fast Selling Items — ${itemWiseSales.length} products`}
             {reportType === 'purchase' && `Purchase Report — ${filteredPurchases.length} records`}
-            {reportType === 'inventory' && `Inventory Valuation — ${itemsData.length} items`}
             {reportType === 'tax' && 'GST / Tax Summary'}
           </h3>
         </div>
@@ -327,7 +420,7 @@ const Reports = () => {
               <tfoot>
                 <tr style={{ borderTop: '2px solid var(--c-border)', background: '#f1f5f9', fontWeight: 800 }}>
                   <td colSpan={4} style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Grand Total:</td>
-                  <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontSize: '1.1rem', color: 'var(--c-success)' }}>₹{totalSales.toFixed(2)}</td>
+                  <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontSize: '1.1rem', color: 'var(--c-success)' }}>₹{Math.round(totalSales)}</td>
                 </tr>
               </tfoot>
             </table>
@@ -363,7 +456,7 @@ const Reports = () => {
               <tfoot>
                 <tr style={{ borderTop: '2px solid var(--c-border)', background: '#f1f5f9', fontWeight: 800 }}>
                   <td colSpan={3} style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Grand Total:</td>
-                  <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontSize: '1.1rem', color: 'var(--c-info)' }}>₹{totalPurchases.toFixed(2)}</td>
+                  <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontSize: '1.1rem', color: 'var(--c-info)' }}>₹{Math.round(totalPurchases)}</td>
                 </tr>
               </tfoot>
             </table>
@@ -414,15 +507,56 @@ const Reports = () => {
           )}
 
           {/* TAX SUMMARY */}
-          {!loading && reportType === 'tax' && (
-            <div style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <div className="card" style={{ padding: '1.5rem', display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '2rem', textAlign: 'center' }}>
-                <div><div style={{ fontSize: '0.9rem', color: 'var(--c-text-secondary)', fontWeight: 700 }}>Total Taxable Sales</div><div style={{ fontSize: '2rem', fontWeight: 900 }}>₹{(totalSales / (1 + taxRate/100)).toFixed(2)}</div></div>
-                <div><div style={{ fontSize: '0.9rem', color: 'var(--c-text-secondary)', fontWeight: 700 }}>GST @ {taxRate}% Collected</div><div style={{ fontSize: '2rem', fontWeight: 900, color: 'var(--c-danger)' }}>₹{(totalSales - totalSales / (1 + taxRate/100)).toFixed(2)}</div></div>
-                <div><div style={{ fontSize: '0.9rem', color: 'var(--c-text-secondary)', fontWeight: 700 }}>Total Transactions</div><div style={{ fontSize: '2rem', fontWeight: 900 }}>{filteredSales.length}</div></div>
+          {!loading && reportType === 'tax' && (() => {
+            const totalTax = filteredSales.reduce((acc, r) => acc + (r.tax_amount || 0), 0);
+            return (
+              <div style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div className="card" style={{ padding: '1.5rem', display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '2rem', textAlign: 'center' }}>
+                  <div><div style={{ fontSize: '0.9rem', color: 'var(--c-text-secondary)', fontWeight: 700 }}>Total Sales</div><div style={{ fontSize: '2rem', fontWeight: 900 }}>₹{Math.round(totalSales)}</div></div>
+                  <div><div style={{ fontSize: '0.9rem', color: 'var(--c-text-secondary)', fontWeight: 700 }}>Actual Tax Collected</div><div style={{ fontSize: '2rem', fontWeight: 900, color: 'var(--c-danger)' }}>₹{Math.round(totalTax)}</div></div>
+                  <div><div style={{ fontSize: '0.9rem', color: 'var(--c-text-secondary)', fontWeight: 700 }}>Total Transactions</div><div style={{ fontSize: '2rem', fontWeight: 900 }}>{filteredSales.length}</div></div>
+                </div>
+                <p style={{ color: 'var(--c-text-secondary)', fontSize: '0.9rem' }}>This report shows the exact tax amounts recorded on your invoices.</p>
               </div>
-              <p style={{ color: 'var(--c-text-secondary)', fontSize: '0.9rem' }}>Note: Tax is estimated at the default rate of {taxRate}%. Consult your CA for exact GSTR filing computations.</p>
-            </div>
+            );
+          })()}
+
+          {/* ITEM-WISE SALES TABLE */}
+          {!loading && reportType === 'items-sales' && (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
+              <thead style={{ position: 'sticky', top: 0, background: 'white', zIndex: 1 }}>
+                <tr style={{ borderBottom: '2px solid var(--c-border)', textAlign: 'left' }}>
+                  <th style={{ padding: '0.75rem 1rem' }}>Rank</th>
+                  <th style={{ padding: '0.75rem 1rem' }}>Item Name</th>
+                  <th style={{ padding: '0.75rem 1rem' }}>Category</th>
+                  <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Qty Sold</th>
+                  <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Revenue</th>
+                </tr>
+              </thead>
+              <tbody>
+                {itemWiseSales.length === 0 && <tr><td colSpan={5} style={{ padding: '2rem', textAlign: 'center', color: 'var(--c-text-secondary)' }}>No items sold in this period.</td></tr>}
+                {itemWiseSales.map((row, i) => (
+                  <tr key={i} style={{ borderBottom: '1px solid var(--c-border)', background: i % 2 === 0 ? 'white' : '#f8fafc' }}>
+                    <td style={{ padding: '0.75rem 1rem' }}>
+                      <span style={{ 
+                        width: 24, height: 24, borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        background: i < 3 ? 'var(--c-warning)' : '#e2e8f0', 
+                        color: i < 3 ? 'white' : 'var(--c-text-secondary)',
+                        fontSize: '0.75rem', fontWeight: 800
+                      }}>
+                        {i + 1}
+                      </span>
+                    </td>
+                    <td style={{ padding: '0.75rem 1rem', fontWeight: 600 }}>{row.name}</td>
+                    <td style={{ padding: '0.75rem 1rem' }}>
+                      <span style={{ padding: '0.2rem 0.6rem', borderRadius: 999, background: '#f1f5f9', fontSize: '0.8rem', fontWeight: 700 }}>{row.category}</span>
+                    </td>
+                    <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: 800, color: 'var(--c-success)' }}>{Math.round(row.qty)}</td>
+                    <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: 700 }}>₹{Math.round(row.revenue)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </div>
       </div>
@@ -520,6 +654,15 @@ const Reports = () => {
 
               {/* Footer Buttons */}
               <div style={{ padding: '1rem 1.5rem', background: '#f8fafc', borderTop: '1px solid var(--c-border)', display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
+                {isSale && (
+                  <button 
+                    onClick={() => handleDeleteSale(data)} 
+                    className="btn-secondary" 
+                    style={{ backgroundColor: '#fee2e2', color: '#dc2626', borderColor: '#fecaca', marginRight: 'auto' }}
+                  >
+                    Delete Sale & Reverse Stock
+                  </button>
+                )}
                 <button onClick={() => window.print()} className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Printer size={16} /> Print</button>
                 <button onClick={() => setActiveRecord(null)} className="btn-primary">Close Details</button>
               </div>
