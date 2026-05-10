@@ -110,7 +110,7 @@ if ($d.labelFiles) {
         Log "Using pre-processed logo bits from browser"
         $bits = [Convert]::FromBase64String($d.logoBits)
         Log "Logo Data Start: $($bits[0..7] -join ', ')"
-        $logo = [byte[]](0x1B, 0x61, 0x01) + $bits
+        $logo = $bits
     } else {
         $logo = Logo $d.logo
     }
