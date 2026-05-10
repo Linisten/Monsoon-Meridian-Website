@@ -11,13 +11,32 @@ try {
 }
 
 function Logo([string]$path) {
-    if (-not (Test-Path $path)) { 
-        Log "LOGO NOT FOUND: $path"
-        return [byte[]](0x0A, 0x1B, 0x61, 0x01) + [System.Text.Encoding]::ASCII.GetBytes("--- LOGO FILE NOT FOUND ---`n")
+    # SMART DISCOVERY: Look in several common places
+    $searchPaths = @(
+        $path,
+        "src/assets/logo.jpg",
+        "src/assets/logo.png",
+        "public/logo.jpg",
+        "../src/assets/logo.jpg",
+        "../../src/assets/logo.jpg"
+    )
+    
+    $finalPath = ""
+    foreach ($p in $searchPaths) {
+        if (Test-Path $p) { $finalPath = $p; break }
     }
+
+    if ($finalPath -eq "") { 
+        Log "LOGO NOT FOUND. Printing diagnostic 'M' shape."
+        # DIAGNOSTIC: A small 16x16 black square as a "Graphic Heartbeat"
+        [byte[]]$box = @(0x1B, 0x61, 0x01, 0x1D, 0x76, 0x30, 0, 2, 0, 16, 0)
+        for($i=0; $i -lt 32; $i++) { $box += 0xFF }
+        return $box + [byte[]](0x0A)
+    }
+
     try {
         Add-Type -AssemblyName System.Drawing
-        $img = [System.Drawing.Image]::FromFile($path)
+        $img = [System.Drawing.Image]::FromFile((Resolve-Path $finalPath))
         $maxW = 384
         $pw = $img.Width; $ph = $img.Height
         if ($pw -gt $maxW) { $ph = [int]([Math]::Round($ph * ($maxW / $pw))); $pw = $maxW }
@@ -29,27 +48,24 @@ function Logo([string]$path) {
         $xL = [byte]($widthBytes % 256); $xH = [byte]([Math]::Floor($widthBytes / 256))
         $yL = [byte]($ph % 256); $yH = [byte]([Math]::Floor($ph / 256))
         [byte[]]$hdr = @(0x1B, 0x61, 0x01, 0x1D, 0x76, 0x30, 0x00, $xL, $xH, $yL, $yH)
-        $body = New-Object byte[] ($widthBytes * $ph); $idx = 0
-        # Diagnostic: Force first 2 rows to be black
-        for ($i=0; $i -lt ($widthBytes * 2); $i++) { $body[$i] = 0xFF }
-        
-        for ($row = 2; $row -lt $ph; $row++) {
+        $body = New-Object byte[] ($widthBytes * $ph)
+        for ($row = 0; $row -lt $ph; $row++) {
             for ($col = 0; $col -lt $pw; $col += 8) {
                 $byte = 0
                 for ($bit = 0; $bit -lt 8; $bit++) {
                     if ($col + $bit -lt $pw) {
                         $px = $bmp.GetPixel($col + $bit, $row)
-                        if ($px.R -lt 200 -or $px.G -lt 200 -or $px.B -lt 200) { $byte = $byte -bor (1 -shl (7 - $bit)) }
+                        if ($px.R -lt 200) { $byte = $byte -bor (1 -shl (7 - $bit)) }
                     }
                 }
-                $body[$idx++] = [byte]$byte
+                $body[($row * $widthBytes) + ($col / 8)] = [byte]$byte
             }
         }
         $bmp.Dispose()
         return $hdr + $body + [byte[]](0x0A)
     } catch { 
         Log "LOGO ERR: $_"
-        return [byte[]](0x0A, 0x1B, 0x61, 0x01) + [System.Text.Encoding]::ASCII.GetBytes("LOGO PROCESSING ERROR: $($_.Exception.Message)`n")
+        return [byte[]](0x0A) + [System.Text.Encoding]::ASCII.GetBytes("LOGO ERR: $($_.Exception.Message)`n")
     }
 }
 
@@ -61,7 +77,6 @@ function QR([string]$text) {
            [byte[]](@(0x1D,0x28,0x6B,$pL,$pH,49,80,48) + $txt) + [byte[]](0x1D,0x28,0x6B, 3,0, 49,81,48)
 }
 
-# Use a Generic List[byte] to avoid PowerShell array nesting issues
 $buffer = New-Object System.Collections.Generic.List[byte]
 
 if ($d.labelFiles) {
@@ -71,14 +86,13 @@ if ($d.labelFiles) {
     $buffer.AddRange([Convert]::FromBase64String($d.part1))
     
     if ($d.logoBits) {
-        Log "Using browser bits (numeric array)"
+        Log "Using browser bits"
         $buffer.AddRange([byte[]]$d.logoBits)
     } else {
         $buffer.AddRange((Logo $d.logo))
     }
     
     $buffer.AddRange([Convert]::FromBase64String($d.part2))
-    
     $buffer.AddRange((QR $d.qr))
     $buffer.AddRange([Convert]::FromBase64String($d.post))
 }
@@ -91,7 +105,6 @@ if (-not $printer) {
     $printer = $def.Name
 }
 
-# Raw Spooler Helper
 $rawCode = @"
 using System;
 using System.Runtime.InteropServices;
@@ -117,28 +130,28 @@ public class RawPrinter {
     [DllImport("winspool.Drv", EntryPoint = "WritePrinter", SetLastError = true)]
     public static extern bool WritePrinter(IntPtr hPrinter, IntPtr pBytes, int dwCount, out int dwWritten);
 
-    public static string Send(string name, byte[] data) {
+    public static void Send(string name, byte[] data) {
         IntPtr h = new IntPtr(0);
         DI di = new DI(); di.pDocName = "Monsoon POS"; di.pDataType = "RAW";
-        if (!OpenPrinter(name, out h, IntPtr.Zero)) return "OpenPrinter Failed: " + Marshal.GetLastWin32Error();
-        if (StartDocPrinter(h, 1, di) == 0) { ClosePrinter(h); return "StartDocPrinter Failed: " + Marshal.GetLastWin32Error(); }
-        if (!StartPagePrinter(h)) { EndDocPrinter(h); ClosePrinter(h); return "StartPagePrinter Failed: " + Marshal.GetLastWin32Error(); }
-        
-        IntPtr p = Marshal.AllocCoTaskMem(data.Length);
-        Marshal.Copy(data, 0, p, data.Length);
-        int w = 0;
-        bool res = WritePrinter(h, p, data.Length, out w);
-        EndPagePrinter(h);
-        EndDocPrinter(h);
-        ClosePrinter(h);
-        Marshal.FreeCoTaskMem(p);
-        return res ? "OK" : "WritePrinter Failed: " + Marshal.GetLastWin32Error();
+        if (OpenPrinter(name, out h, IntPtr.Zero)) {
+            if (StartDocPrinter(h, 1, di) != 0) {
+                if (StartPagePrinter(h)) {
+                    IntPtr p = Marshal.AllocCoTaskMem(data.Length);
+                    Marshal.Copy(data, 0, p, data.Length);
+                    int w = 0;
+                    WritePrinter(h, p, data.Length, out w);
+                    EndPagePrinter(h);
+                    Marshal.FreeCoTaskMem(p);
+                }
+                EndDocPrinter(h);
+            }
+            ClosePrinter(h);
+        }
     }
 }
 "@
 
 Add-Type -TypeDefinition $rawCode -ErrorAction SilentlyContinue
 Log "Spooling $($finalBytes.Length) bytes to $printer"
-Log "Buffer Header: $([BitConverter]::ToString($finalBytes[0..[Math]::Min(31, $finalBytes.Length-1)]))"
 [RawPrinter]::Send($printer, $finalBytes)
 Log "Done."
