@@ -84,19 +84,44 @@ async function getLogoBits(url, maxWidth = 384) {
                     console.warn("[PRINT] → Logo processing resulted in an empty image (all white).");
                     resolve(null); return;
                 }
-                // Use GS v 0 (Raster) - NO CENTERING
                 const widthInBytes = Math.ceil(w / 8);
                 const result = [];
-                // Diagnostic strip
-                for (let i = 0; i < (widthInBytes * 8); i++) bits[i] = 0xFF;
-                
+
+                // Format 1: GS v 0 (Raster)
                 result.push(0x1D, 0x76, 0x30, 0, widthInBytes % 256, Math.floor(widthInBytes / 256), h % 256, Math.floor(h / 256));
                 for (let i = 0; i < bits.length; i++) result.push(bits[i]);
-                
                 result.push(0x0A);
+
+                // Format 2: ESC * 33 (24-dot Bit Image)
+                for (let y = 0; y < h; y += 24) {
+                    result.push(0x1B, 0x2A, 33, w % 256, Math.floor(w / 256));
+                    for (let x = 0; x < w; x++) {
+                        for (let bRow = 0; bRow < 3; bRow++) {
+                            let byte = 0;
+                            for (let b = 0; b < 8; b++) {
+                                const currY = y + (bRow * 8) + b;
+                                if (currY < h) {
+                                    const i = (currY * widthInBytes) + Math.floor(x / 8);
+                                    if (bits[i] & (0x80 >> (x % 8))) byte |= (0x80 >> b);
+                                }
+                            }
+                            result.push(byte);
+                        }
+                    }
+                    result.push(0x1B, 0x4A, 24); 
+                }
+                result.push(0x0A);
+
+                // Format 3: GS ( L (Modern Graphics)
+                const dataSize = (widthInBytes * h) + 10;
+                result.push(0x1D, 0x28, 0x4C, dataSize % 256, Math.floor(dataSize / 256), 48, 112, 48, 1, 1, 49, widthInBytes % 256, Math.floor(widthInBytes / 256), h % 256, Math.floor(h / 256));
+                for (let i = 0; i < bits.length; i++) result.push(bits[i]);
+                result.push(0x1D, 0x28, 0x4C, 2, 0, 48, 2); 
+                result.push(0x0A);
+
                 const full = new Uint8Array(result);
                 const numericArray = Array.from(full);
-                console.log("[PRINT] → Logo (128px Raster) processed!", numericArray.length);
+                console.log("[PRINT] → Logo (Shotgun Mode) processed!", numericArray.length);
                 resolve(numericArray);
             } catch (e) {
                 console.error("[PRINT] → Logo processing error (canvas):", e);
