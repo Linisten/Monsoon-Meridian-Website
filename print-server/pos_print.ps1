@@ -2,22 +2,18 @@ $logFile = "print.log"
 function Log($msg) { Add-Content $logFile "$(Get-Date -Format 'HH:mm:ss') - $msg" }
 
 $jsonPath = $args[0]
-Log "Starting print job with JSON: $jsonPath"
-if (-not $jsonPath) { Log "ERROR: No JSON path provided"; exit 1 }
+if (-not $jsonPath) { exit 1 }
 
 try {
     $d = Get-Content $jsonPath -Raw | ConvertFrom-Json
-    if (-not $d) { throw "Failed to parse JSON" }
 } catch {
-    Log "FATAL JSON ERROR: $_"
-    exit 1
+    Log "JSON ERROR: $_"; exit 1
 }
-
-Add-Type -AssemblyName System.Drawing
 
 function Logo([string]$path) {
     if (-not (Test-Path $path)) { return [byte[]]@() }
     try {
+        Add-Type -AssemblyName System.Drawing
         $img = [System.Drawing.Image]::FromFile($path)
         $maxW = 384
         $pw = $img.Width; $ph = $img.Height
@@ -56,33 +52,38 @@ function QR([string]$text) {
            [byte[]](@(0x1D,0x28,0x6B,$pL,$pH,49,80,48) + $txt) + [byte[]](0x1D,0x28,0x6B, 3,0, 49,81,48)
 }
 
-[byte[]]$full = @()
+# Combine all parts into ONE byte array carefully
+[byte[]]$allBytes = @()
+
 if ($d.labelFiles) {
-    $full += [byte[]](0x1B, 0x40)
-    foreach ($file in $d.labelFiles) { $full += Logo $file; $full += [byte[]](0x0A) }
+    $allBytes += [byte[]](0x1B, 0x40)
+    foreach ($f in $d.labelFiles) { $allBytes += Logo $f; $allBytes += [byte[]](0x0A) }
 } else {
-    [byte[]]$logo = @()
+    $allBytes += [Convert]::FromBase64String($d.part1)
     if ($d.logoBits) {
-        Log "Using pre-processed logo bits from browser"
-        $logo = [Convert]::FromBase64String($d.logoBits)
-    } else { $logo = Logo $d.logo }
-    $full = [Convert]::FromBase64String($d.part1) + $logo + [Convert]::FromBase64String($d.part2) + (QR $d.qr) + [Convert]::FromBase64String($d.post)
+        Log "Using browser bits"
+        $allBytes += [Convert]::FromBase64String($d.logoBits)
+    } else {
+        $allBytes += Logo $d.logo
+    }
+    $allBytes += [Convert]::FromBase64String($d.part2)
+    $allBytes += QR $d.qr
+    $allBytes += [Convert]::FromBase64String($d.post)
 }
 
 $printer = $d.printer
 if (-not $printer) { 
     $def = Get-Printer | Where-Object IsDefault -eq $true
     $printer = $def.Name
-    Log "Using Default: $printer"
 }
 
-# FINAL RAW PRINT C# HELPER
+# Raw Spooler Helper
 $rawCode = @"
 using System;
 using System.Runtime.InteropServices;
 public class RawPrinter {
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
-    public class DOCINFOA {
+    public class DI {
         [MarshalAs(UnmanagedType.LPStr)] public string pDocName;
         [MarshalAs(UnmanagedType.LPStr)] public string pOutputFile;
         [MarshalAs(UnmanagedType.LPStr)] public string pDataType;
@@ -92,7 +93,7 @@ public class RawPrinter {
     [DllImport("winspool.Drv", EntryPoint = "ClosePrinter", SetLastError = true)]
     public static extern bool ClosePrinter(IntPtr hPrinter);
     [DllImport("winspool.Drv", EntryPoint = "StartDocPrinterA", SetLastError = true, CharSet = CharSet.Ansi)]
-    public static extern bool StartDocPrinter(IntPtr hPrinter, Int32 level, [In, MarshalAs(UnmanagedType.LPStruct)] DOCINFOA di);
+    public static extern bool StartDocPrinter(IntPtr hPrinter, Int32 level, [In, MarshalAs(UnmanagedType.LPStruct)] DI di);
     [DllImport("winspool.Drv", EntryPoint = "EndDocPrinter", SetLastError = true)]
     public static extern bool EndDocPrinter(IntPtr hPrinter);
     [DllImport("winspool.Drv", EntryPoint = "StartPagePrinter", SetLastError = true)]
@@ -102,30 +103,28 @@ public class RawPrinter {
     [DllImport("winspool.Drv", EntryPoint = "WritePrinter", SetLastError = true)]
     public static extern bool WritePrinter(IntPtr hPrinter, IntPtr pBytes, Int32 dwCount, out Int32 dwWritten);
 
-    public static bool Send(string szPrinterName, byte[] pBytes) {
-        IntPtr hPrinter = new IntPtr(0);
-        DOCINFOA di = new DOCINFOA();
-        di.pDocName = "Monsoon POS Print"; di.pDataType = "RAW";
-        if (OpenPrinter(szPrinterName, out hPrinter, IntPtr.Zero)) {
-            if (StartDocPrinter(hPrinter, 1, di)) {
-                if (StartPagePrinter(hPrinter)) {
-                    IntPtr pUnmanagedBytes = Marshal.AllocCoTaskMem(pBytes.Length);
-                    Marshal.Copy(pBytes, 0, pUnmanagedBytes, pBytes.Length);
-                    Int32 dwWritten = 0;
-                    WritePrinter(hPrinter, pUnmanagedBytes, pBytes.Length, out dwWritten);
-                    EndPagePrinter(hPrinter);
-                    Marshal.FreeCoTaskMem(pUnmanagedBytes);
+    public static void Send(string name, byte[] data) {
+        IntPtr h = new IntPtr(0);
+        DI di = new DI(); di.pDocName = "Monsoon POS"; di.pDataType = "RAW";
+        if (OpenPrinter(name, out h, IntPtr.Zero)) {
+            if (StartDocPrinter(h, 1, di) != 0) {
+                if (StartPagePrinter(h)) {
+                    IntPtr p = Marshal.AllocCoTaskMem(data.Length);
+                    Marshal.Copy(data, 0, p, data.Length);
+                    Int32 w = 0;
+                    WritePrinter(h, p, data.Length, out w);
+                    EndPagePrinter(h);
+                    Marshal.FreeCoTaskMem(p);
                 }
-                EndDocPrinter(hPrinter);
+                EndDocPrinter(h);
             }
-            ClosePrinter(hPrinter);
+            ClosePrinter(h);
         }
-        return true;
     }
 }
 "@
 
 Add-Type -TypeDefinition $rawCode -ErrorAction SilentlyContinue
-Log "Spooling $($full.Length) bytes to $printer"
-[RawPrinter]::Send($printer, $full)
+Log "Spooling $($allBytes.Length) bytes to $printer"
+[RawPrinter]::Send($printer, $allBytes)
 Log "Done."

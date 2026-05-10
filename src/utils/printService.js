@@ -84,30 +84,22 @@ async function getLogoBits(url, maxWidth = 384) {
                     console.warn("[PRINT] → Logo processing resulted in an empty image (all white).");
                     resolve(null); return;
                 }
-                // Use GS ( L - Modern Graphics Command (Function 112)
-                const result = [];
+                // Use GS v 0 - Standard Raster Mode
                 const widthInBytes = Math.ceil(w / 8);
-                const dataSize = (widthInBytes * h) + 10;
-                const pL = dataSize % 256;
-                const pH = Math.floor(dataSize / 256);
-                
+                const result = [];
                 result.push(0x1B, 0x61, 0x01); // Center
-                result.push(0x1D, 0x28, 0x4C, pL, pH, 48, 112, 48, 1, 1, 49, widthInBytes % 256, Math.floor(widthInBytes / 256), h % 256, Math.floor(h / 256));
+                result.push(0x1D, 0x76, 0x30, 0, widthInBytes % 256, Math.floor(widthInBytes / 256), h % 256, Math.floor(h / 256));
                 
-                for (let i = 0; i < (widthInBytes * h); i++) {
-                    // For diagnostic: Create a tiny black square if logo bits are empty
-                    // but here we use actual logo data
-                    result.push(bits[i] || 0); 
+                for (let i = 0; i < bits.length; i++) {
+                    result.push(bits[i]);
                 }
                 
-                result.push(0x1D, 0x28, 0x4C, 2, 0, 48, 2); // Print the graphics buffer
-                result.push(0x0A);
-                
+                result.push(0x0A); // Space after logo
                 const full = new Uint8Array(result);
                 let binary = '';
                 for (let i = 0; i < full.byteLength; i++) binary += String.fromCharCode(full[i]);
                 const base64 = window.btoa(binary);
-                console.log("[PRINT] → Logo (GS ( L) processed successfully! Size:", base64.length);
+                console.log("[PRINT] → Logo (GS v 0) processed successfully! Size:", base64.length);
                 resolve(base64);
             } catch (e) {
                 console.error("[PRINT] → Logo processing error (canvas):", e);
@@ -136,10 +128,10 @@ export async function printReceipt(tx, settings = {}, printerName = null, logoUr
     const s = settings || {};
     
     // Process logo in browser (Try passed URL, fallback to /logo.jpg)
-    let logoBase64 = await getLogoBits(logoUrl, 320);
+    let logoBase64 = await getLogoBits(logoUrl, 200);
     if (!logoBase64 && logoUrl !== '/logo.jpg') {
         console.log("[PRINT] → Falling back to root /logo.jpg");
-        logoBase64 = await getLogoBits('/logo.jpg', 320);
+        logoBase64 = await getLogoBits('/logo.jpg', 200);
     }
 
     const payload = {
