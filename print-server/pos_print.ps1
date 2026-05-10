@@ -11,7 +11,7 @@ function Logo([string]$path) {
     try {
         $img = [System.Drawing.Image]::FromFile($path)
         
-        $maxW = 512
+        $maxW = 384
         $pw = $img.Width
         $ph = $img.Height
         
@@ -32,8 +32,8 @@ function Logo([string]$path) {
         $xL = [byte](($pw / 8) % 256); $xH = [byte]([Math]::Floor(($pw / 8) / 256))
         $yL = [byte]($ph % 256); $yH = [byte]([Math]::Floor($ph / 256))
         
-        # LF + GS v 0 0 xL xH yL yH
-        $hdr = [byte[]](0x0A, 0x1B,0x61,0x01, 0x1D,0x76,0x30,0x00, $xL,$xH,$yL,$yH)
+        # GS v 0 0 xL xH yL yH
+        $hdr = [byte[]](0x1B,0x61,0x01, 0x1D,0x76,0x30,0x00, $xL,$xH,$yL,$yH)
         $body = New-Object byte[] ($pw/8 * $ph)
         $idx = 0
         for ($row=0; $row -lt $ph; $row++) {
@@ -42,12 +42,16 @@ function Logo([string]$path) {
                 for ($bit=0; $bit -lt 8; $bit++) {
                     if ($col+$bit -lt $pw) {
                         $px = $bmp.GetPixel($col+$bit, $row)
-                        if ($px.GetBrightness() -lt 0.71) { $byte = $byte -bor (1 -shl (7-$bit)) }
+                        # Threshold (0.8 is safer, picking up more colors as black)
+                        if ($px.GetBrightness() -lt 0.8) { $byte = $byte -bor (1 -shl (7-$bit)) }
                     }
                 }
                 $body[$idx++] = [byte]$byte
             }
         }
+        # Diagnostic: Force first two rows to be a solid black line
+        for ($i=0; $i -lt ($pw/8 * 2); $i++) { $body[$i] = 255 }
+
         $bmp.Dispose()
         return [byte[]]($hdr + $body + [byte[]](0x0A))
     } catch {
