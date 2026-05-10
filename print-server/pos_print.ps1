@@ -52,24 +52,26 @@ function QR([string]$text) {
            [byte[]](@(0x1D,0x28,0x6B,$pL,$pH,49,80,48) + $txt) + [byte[]](0x1D,0x28,0x6B, 3,0, 49,81,48)
 }
 
-# Combine all parts into ONE byte array carefully
-[byte[]]$allBytes = @()
+# Use a Generic List[byte] to avoid PowerShell array nesting issues
+$buffer = New-Object System.Collections.Generic.List[byte]
 
 if ($d.labelFiles) {
-    $allBytes += [byte[]](0x1B, 0x40)
-    foreach ($f in $d.labelFiles) { $allBytes += Logo $f; $allBytes += [byte[]](0x0A) }
+    $buffer.AddRange([byte[]](0x1B, 0x40))
+    foreach ($f in $d.labelFiles) { $buffer.AddRange((Logo $f)); $buffer.Add(0x0A) }
 } else {
-    $allBytes += [Convert]::FromBase64String($d.part1)
+    $buffer.AddRange([Convert]::FromBase64String($d.part1))
     if ($d.logoBits) {
         Log "Using browser bits"
-        $allBytes += [Convert]::FromBase64String($d.logoBits)
+        $buffer.AddRange([Convert]::FromBase64String($d.logoBits))
     } else {
-        $allBytes += Logo $d.logo
+        $buffer.AddRange((Logo $d.logo))
     }
-    $allBytes += [Convert]::FromBase64String($d.part2)
-    $allBytes += QR $d.qr
-    $allBytes += [Convert]::FromBase64String($d.post)
+    $buffer.AddRange([Convert]::FromBase64String($d.part2))
+    $buffer.AddRange((QR $d.qr))
+    $buffer.AddRange([Convert]::FromBase64String($d.post))
 }
+
+$finalBytes = $buffer.ToArray()
 
 $printer = $d.printer
 if (-not $printer) { 
@@ -125,6 +127,6 @@ public class RawPrinter {
 "@
 
 Add-Type -TypeDefinition $rawCode -ErrorAction SilentlyContinue
-Log "Spooling $($allBytes.Length) bytes to $printer"
-[RawPrinter]::Send($printer, $allBytes)
+Log "Spooling $($finalBytes.Length) bytes to $printer"
+[RawPrinter]::Send($printer, $finalBytes)
 Log "Done."
