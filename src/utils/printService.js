@@ -80,7 +80,7 @@ export async function printReceipt(tx, settings = {}, printerName = null) {
         phone:        s.phone || '',
         gst_no:       s.gst_no || '',
       },
-      printerName: printerName || null,
+      printerName: printerName || s.thermal_printer_name || null,
     };
 
     const res = await fetch(`${PRINT_SERVER}/print`, {

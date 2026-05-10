@@ -194,26 +194,21 @@ async function printLabels(labelImages, copies = 1, printerName) {
 
 // ── Print via external PS1 script ──────────────────────────────────────────
 async function printReceipt(data, settings, printerName) {
-  // Find logo: check common paths relative to server.js
-  const searchPaths = [
-    path.resolve(__dirname, '..', 'dist', 'logo.jpg'),
-    path.resolve(__dirname, '..', 'public', 'logo.jpg'),
-    path.resolve(__dirname, '..', 'src', 'assets', 'logo.jpg'),
-    path.resolve(__dirname, 'logo.jpg'), // if logo is in the same folder as server.js
-    path.join(process.cwd(), 'public', 'logo.jpg'),
-    path.join(process.cwd(), 'dist', 'logo.jpg'),
-  ];
+  // Find logo: check production path (dist) first, then development path (public), then source path
+  const prodLogo = path.resolve(__dirname, '..', 'dist', 'logo.jpg');
+  const devLogo  = path.resolve(__dirname, '..', 'public', 'logo.jpg');
+  const srcLogo  = path.resolve(__dirname, '..', 'src', 'assets', 'logo.jpg');
+  const prodLogoPng = path.resolve(__dirname, '..', 'dist', 'logo.png');
+  const devLogoPng  = path.resolve(__dirname, '..', 'public', 'logo.png');
   
-  let logoPath = searchPaths.find(p => fs.existsSync(p));
-  
-  if (logoPath) {
-    console.log(`[LOGO] → Found at: ${logoPath}`);
-  } else {
-    console.warn(`[LOGO] → NOT FOUND in any searched path.`);
-    // Fallback to srcLogo path just to have a string
-    logoPath = searchPaths[2]; 
-  }
+  let logoPath = srcLogo;
+  if (fs.existsSync(prodLogo)) logoPath = prodLogo;
+  else if (fs.existsSync(prodLogoPng)) logoPath = prodLogoPng;
+  else if (fs.existsSync(devLogo)) logoPath = devLogo;
+  else if (fs.existsSync(devLogoPng)) logoPath = devLogoPng;
 
+  // Use backslashes for PowerShell on Windows
+  logoPath = path.normalize(logoPath);
   
   const { part1, part2, post } = buildReceipt(data, settings);
 
@@ -265,9 +260,9 @@ function getPrinters() {
 app.post('/print', async (req, res) => {
   console.log(`[HTTP] → Incoming print request for ID: ${req.body?.receipt?.id}`);
   try {
-    const { receipt, settings } = req.body;
+    const { receipt, settings, printerName } = req.body;
     const printers = getPrinters();
-    const target = printers.find(p => p.isDefault)?.name || printers[0]?.name;
+    const target = printerName || printers.find(p => p.isDefault)?.name || printers[0]?.name;
     if (!target) return res.status(500).json({ error: 'No printer found' });
     console.log(`[PRINT] → ${target}`);
     await printReceipt(receipt, settings || {}, target);

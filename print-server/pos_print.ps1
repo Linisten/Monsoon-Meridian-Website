@@ -42,16 +42,12 @@ function Logo([string]$path) {
                 for ($bit=0; $bit -lt 8; $bit++) {
                     if ($col+$bit -lt $pw) {
                         $px = $bmp.GetPixel($col+$bit, $row)
-                        # Threshold (0.8 is safer, picking up more colors as black)
-                        if ($px.GetBrightness() -lt 0.8) { $byte = $byte -bor (1 -shl (7-$bit)) }
+                        if ($px.GetBrightness() -lt 0.71) { $byte = $byte -bor (1 -shl (7-$bit)) }
                     }
                 }
                 $body[$idx++] = [byte]$byte
             }
         }
-        # Diagnostic: Force first two rows to be a solid black line
-        for ($i=0; $i -lt ($pw/8 * 2); $i++) { $body[$i] = 255 }
-
         $bmp.Dispose()
         return [byte[]]($hdr + $body + [byte[]](0x0A))
     } catch {
