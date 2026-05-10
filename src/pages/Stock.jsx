@@ -42,7 +42,7 @@ const Stock = () => {
     const [cats, uns, txs] = await Promise.all([
       supabase.from('category').select('name').order('name'),
       supabase.from('unit').select('name').order('name'),
-      supabase.from('tax').select('name, percentage').order('name')
+      supabase.from('tax').select('name, rate_percent').order('name')
     ]);
     if (cats.data) setCategories(cats.data.map(c => c.name));
     if (uns.data) setUnits(uns.data.map(u => u.name));
@@ -69,7 +69,7 @@ const Stock = () => {
       setActiveItem({
         name: '', code: '', category: categories[0] || 'GENERAL', 
         unit: units[0] || 'NOS', tax: taxes[0]?.name || 'GST 0%', 
-        cost_price: 0, rate: 0, mrp: 0, stock_quantity: 0, 
+        cost_price: 0, price: 0, mrp: 0, stock_quantity: 0, 
         low_stock_alert: 5, expiry_date: '', image_url: ''
       });
     }
@@ -452,7 +452,7 @@ const Stock = () => {
                   </div>
                   <div>
                     <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--c-text-secondary)', display: 'block', marginBottom: '0.5rem' }}>Selling Price</label>
-                    <input type="number" value={activeItem.rate} onChange={e => setActiveItem({...activeItem, rate: parseFloat(e.target.value)})} />
+                    <input type="number" value={activeItem.price} onChange={e => setActiveItem({...activeItem, price: parseFloat(e.target.value)})} />
                   </div>
                   <div>
                     <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--c-text-secondary)', display: 'block', marginBottom: '0.5rem' }}>MRP</label>
@@ -460,11 +460,8 @@ const Stock = () => {
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
-                   <div>
-                    <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--c-text-secondary)', display: 'block', marginBottom: '0.5rem' }}>Current Stock</label>
-                    <input type="number" value={activeItem.stock_quantity} onChange={e => setActiveItem({...activeItem, stock_quantity: parseFloat(e.target.value)})} />
-                  </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>
+
                   <div>
                     <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--c-text-secondary)', display: 'block', marginBottom: '0.5rem' }}>Low Stock Alert</label>
                     <input type="number" value={activeItem.low_stock_alert} onChange={e => setActiveItem({...activeItem, low_stock_alert: parseFloat(e.target.value)})} />

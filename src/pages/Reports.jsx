@@ -68,7 +68,7 @@ const Reports = () => {
           };
         }
         const q = Number(it.qty) || 0;
-        const r = Number(it.price || it.rate || 0);
+        const r = Number(it.price || 0);
         summary[key].qty += q;
         summary[key].revenue += (q * r);
       });
@@ -604,7 +604,7 @@ const Reports = () => {
                     {itemsList.length === 0 && <tr><td colSpan={5} style={{ padding: '2rem', textAlign: 'center', color: 'var(--c-text-secondary)' }}>No items detail recorded.</td></tr>}
                     {itemsList.map((it, idx) => {
                       const name = it.name || 'Unknown Item';
-                      const rate = it.price || it.rate || 0;
+                      const rate = it.price || 0;
                       const qty  = it.qty || 0;
                       return (
                         <tr key={idx} style={{ borderBottom: '1px solid var(--c-border)' }}>

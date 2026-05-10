@@ -81,7 +81,7 @@ const ThermalReceipt = ({ tx, settings }) => {
         <span>Item</span><span style={{ textAlign: 'right' }}>Qty</span><span style={{ textAlign: 'right' }}>Rate</span><span style={{ textAlign: 'right' }}>Amt</span>
       </div>
       {tx.items_json?.map((it, i) => {
-        const rate = it.price || it.rate || 0;
+        const rate = it.price || 0;
         const qNum = it.qty || 1;
         
         return (
@@ -289,7 +289,7 @@ const Sales = () => {
     const inCart = cart.find(c => c.id === id);
     if (!inCart) return;
 
-    const rate = inCart.price || inCart.rate || 0;
+    const rate = inCart.price || 0;
     const newAmt = parseFloat(val) || 0;
     const newQty = rate > 0 ? parseFloat((newAmt / rate).toFixed(4)) : inCart.qty;
 
@@ -305,7 +305,7 @@ const Sales = () => {
     setCart(prev => prev.map(c => c.id === id ? { ...c, qty: newQty, manual_amount: val } : c));
   }, [cart, items]);
 
-  const totalAmount    = cart.reduce((s, c) => s + (c.price || c.rate || 0) * c.qty, 0);
+  const totalAmount    = cart.reduce((s, c) => s + (c.price || 0) * c.qty, 0);
   const discountAmount = parseFloat(discount) || 0;
   const afterDiscount  = Math.max(0, totalAmount - discountAmount);
   const taxAmount      = afterDiscount * (taxPercent / 100);
@@ -575,7 +575,7 @@ const Sales = () => {
                 Cart is empty — tap items on the right to add them.
               </div>
             ) : cart.map((it, idx) => {
-              const rate = it.price || it.rate || 0;
+              const rate = it.price || 0;
               return (
                 <div key={it.id} className="cart-table-row" style={{ display: 'flex', alignItems: 'center', padding: '0.75rem 1rem', borderBottom: '1px solid var(--c-border)', fontSize: '0.95rem' }}>
                   <div style={{ width: 36, color: 'var(--c-text-secondary)' }}>{idx + 1}</div>
@@ -726,7 +726,7 @@ const Sales = () => {
             .filter(it => !itemSearch || it.name?.toLowerCase().includes(itemSearch.toLowerCase()) || it.code?.toLowerCase().includes(itemSearch.toLowerCase()))
             .map(it => {
               const pastel = ITEM_PASTEL[it.category] || { bg: '#E2E8F0', text: '#334155', border: '#94A3B8' };
-              const price  = it.price || it.rate || 0;
+              const price  = it.price || 0;
               const stock  = it.stock_quantity ?? null;
               const isLow  = stock !== null && stock <= (it.low_stock_alert || 5);
               const isOutOfStock = stock !== null && stock <= 0;

@@ -18,6 +18,7 @@ create table if not exists public.items (
   is_active        boolean default true,
   barcode_type     text default 'SYSTEM GENERATED',
   item_type        text default 'INVENTORY',
+  expiry_date      date,
   created_at       timestamptz default now()
 );
 

@@ -44,7 +44,7 @@ const Purchase = () => {
     const item = items.find(it => it.code?.toLowerCase() === code.toLowerCase());
     if (item) {
       setActiveItem(item);
-      setPurRate(item.rate || 0);
+      setPurRate(item.price || 0);
       setPurQty(1);
       setSearchInput('');
       return true;
@@ -125,7 +125,7 @@ const Purchase = () => {
       const item = items.find(it => (it.code || '').toLowerCase() === code.toLowerCase());
       if (item) {
         setActiveItem(item);
-        setPurRate(item.rate || 0);
+        setPurRate(item.price || 0);
         setPurQty(1);
         setSearchInput('');
       } else {
@@ -389,7 +389,7 @@ const Purchase = () => {
             {filteredItems.map((item) => (
               <div 
                 key={item.id} 
-                onClick={() => { setActiveItem(item); setPurRate(item.rate || 0); }}
+                onClick={() => { setActiveItem(item); setPurRate(item.price || 0); }}
                 style={{ 
                   display: 'grid', gridTemplateColumns: '50px 2fr 1.5fr 60px 80px', padding: '0.5rem', fontSize: '0.75rem', borderBottom: '1px solid var(--c-border)', cursor: 'pointer',
                   backgroundColor: activeItem && activeItem.id === item.id ? 'var(--c-wave-light)' : 'transparent',
