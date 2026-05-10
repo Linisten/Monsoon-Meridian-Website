@@ -221,8 +221,8 @@ async function printReceipt(data, settings, printerName) {
     part2:   part2.toString('base64'),
     post:    post.toString('base64'),
     qr:      'https://instagram.com/monsoonmeridian',
-    logo:    logoPath,
-    printer: printerName,
+    logoBits:    req.body.logoBits || null, // Pre-processed bits from browser
+    printer:     printerName,
   }));
 
   return new Promise((resolve) => {

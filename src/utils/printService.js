@@ -48,6 +48,51 @@ export async function getAvailablePrinters() {
  * @param {string} [printerName] – Optional: override the default printer name
  * @returns {{ success: boolean, error?: string, jobId?: number }}
  */
+// Helper to convert logo to ESC/POS bits in the browser
+async function getLogoBits(url, maxWidth = 384) {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.crossOrigin = "Anonymous";
+        img.onload = () => {
+            try {
+                const canvas = document.createElement('canvas');
+                let w = img.width, h = img.height;
+                if (w > maxWidth) { h = Math.round(h * (maxWidth / w)); w = maxWidth; }
+                const widthInBytes = Math.ceil(w / 8);
+                canvas.width = widthInBytes * 8; 
+                canvas.height = h;
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = 'white';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, 0, 0, w, h);
+                const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+                const bits = new Uint8Array(widthInBytes * h);
+                for (let y = 0; y < h; y++) {
+                    for (let x = 0; x < canvas.width; x++) {
+                        const i = (y * canvas.width + x) * 4;
+                        const avg = (data[i] + data[i+1] + data[i+2]) / 3;
+                        if (avg < 180) {
+                            const byteIdx = y * widthInBytes + Math.floor(x / 8);
+                            bits[byteIdx] |= (0x80 >> (x % 8));
+                        }
+                    }
+                }
+                const header = [0x1D, 0x76, 0x30, 0, widthInBytes % 256, Math.floor(widthInBytes / 256), h % 256, Math.floor(h / 256)];
+                const full = new Uint8Array(header.length + bits.length);
+                full.set(header); full.set(bits, header.length);
+                let binary = '';
+                for (let i = 0; i < full.byteLength; i++) binary += String.fromCharCode(full[i]);
+                resolve(window.btoa(binary));
+            } catch (e) {
+                console.error("Logo processing error:", e);
+                resolve(null);
+            }
+        };
+        img.onerror = () => resolve(null);
+        img.src = url;
+    });
+}
+
 export async function printReceipt(tx, settings = {}, printerName = null) {
   try {
     const gross = tx.gross_total ?? tx.total_amount ?? 0;
@@ -60,6 +105,10 @@ export async function printReceipt(tx, settings = {}, printerName = null) {
     const roundOff = net - beforeRound;
 
     const s = settings || {};
+    
+    // Process logo in browser
+    const logoBase64 = await getLogoBits('/logo.jpg', 384);
+
     const payload = {
       receipt: {
         id:             tx.id,
@@ -81,13 +130,14 @@ export async function printReceipt(tx, settings = {}, printerName = null) {
         gst_no:       s.gst_no || '',
       },
       printerName: printerName || s.thermal_printer_name || null,
+      logoBits: logoBase64
     };
 
     const res = await fetch(`${PRINT_SERVER}/print`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify(payload),
-      signal:  AbortSignal.timeout(8000),
+      signal:  AbortSignal.timeout(10000), // increased timeout for logo processing
     });
 
     const data = await res.json();

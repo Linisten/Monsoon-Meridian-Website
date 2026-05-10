@@ -116,7 +116,14 @@ if ($d.labelFiles) {
     [byte[]]$part1 = [Convert]::FromBase64String($d.part1)
     [byte[]]$part2 = [Convert]::FromBase64String($d.part2)
     [byte[]]$post  = [Convert]::FromBase64String($d.post)
-    [byte[]]$logo  = Logo $d.logo
+    [byte[]]$logo  = @()
+    if ($d.logoBits) {
+        Log "Using pre-processed logo bits from browser"
+        $logo = [Convert]::FromBase64String($d.logoBits)
+    } else {
+        $logo = Logo $d.logo
+    }
+    
     [byte[]]$qr    = QR $d.qr
     $full = $part1 + $logo + $part2 + $qr + $post
 }
