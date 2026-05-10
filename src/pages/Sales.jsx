@@ -436,7 +436,7 @@ const Sales = () => {
     setIsPrinting(true);
 
     try {
-      const result = await printReceipt(lastTransaction, sysSettings);
+      const result = await printReceipt(lastTransaction, sysSettings, null, logoUrl);
       if (!result.success) {
         // Fallback: browser print dialog if server is not running
         console.warn('Print server error, falling back to browser print:', result.error);

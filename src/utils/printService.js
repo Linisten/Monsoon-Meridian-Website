@@ -50,6 +50,7 @@ export async function getAvailablePrinters() {
  */
 // Helper to convert logo to ESC/POS bits in the browser
 async function getLogoBits(url, maxWidth = 384) {
+    console.log("[PRINT] → Attempting to process logo from:", url);
     return new Promise((resolve) => {
         const img = new Image();
         img.crossOrigin = "Anonymous";
@@ -67,33 +68,44 @@ async function getLogoBits(url, maxWidth = 384) {
                 ctx.drawImage(img, 0, 0, w, h);
                 const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
                 const bits = new Uint8Array(widthInBytes * h);
+                let hasPixels = false;
                 for (let y = 0; y < h; y++) {
                     for (let x = 0; x < canvas.width; x++) {
                         const i = (y * canvas.width + x) * 4;
                         const avg = (data[i] + data[i+1] + data[i+2]) / 3;
-                        if (avg < 180) {
+                        if (avg < 200) { // Aggressive threshold
                             const byteIdx = y * widthInBytes + Math.floor(x / 8);
                             bits[byteIdx] |= (0x80 >> (x % 8));
+                            hasPixels = true;
                         }
                     }
+                }
+                if (!hasPixels) {
+                    console.warn("[PRINT] → Logo processing resulted in an empty image (all white).");
+                    resolve(null); return;
                 }
                 const header = [0x1D, 0x76, 0x30, 0, widthInBytes % 256, Math.floor(widthInBytes / 256), h % 256, Math.floor(h / 256)];
                 const full = new Uint8Array(header.length + bits.length);
                 full.set(header); full.set(bits, header.length);
                 let binary = '';
                 for (let i = 0; i < full.byteLength; i++) binary += String.fromCharCode(full[i]);
-                resolve(window.btoa(binary));
+                const base64 = window.btoa(binary);
+                console.log("[PRINT] → Logo processed successfully! Size:", base64.length);
+                resolve(base64);
             } catch (e) {
-                console.error("Logo processing error:", e);
+                console.error("[PRINT] → Logo processing error (canvas):", e);
                 resolve(null);
             }
         };
-        img.onerror = () => resolve(null);
+        img.onerror = (e) => {
+            console.error("[PRINT] → Failed to load logo image file:", url, e);
+            resolve(null);
+        };
         img.src = url;
     });
 }
 
-export async function printReceipt(tx, settings = {}, printerName = null) {
+export async function printReceipt(tx, settings = {}, printerName = null, logoUrl = '/logo.jpg') {
   try {
     const gross = tx.gross_total ?? tx.total_amount ?? 0;
     const discount = tx.discount_amount ?? 0;
@@ -106,8 +118,12 @@ export async function printReceipt(tx, settings = {}, printerName = null) {
 
     const s = settings || {};
     
-    // Process logo in browser
-    const logoBase64 = await getLogoBits('/logo.jpg', 384);
+    // Process logo in browser (Try passed URL, fallback to /logo.jpg)
+    let logoBase64 = await getLogoBits(logoUrl, 384);
+    if (!logoBase64 && logoUrl !== '/logo.jpg') {
+        console.log("[PRINT] → Falling back to root /logo.jpg");
+        logoBase64 = await getLogoBits('/logo.jpg', 384);
+    }
 
     const payload = {
       receipt: {
