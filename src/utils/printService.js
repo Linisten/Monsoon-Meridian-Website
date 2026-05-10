@@ -146,10 +146,10 @@ export async function printReceipt(tx, settings = {}, printerName = null, logoUr
 
     const s = settings || {};
     
-    // Re-enable browser processing for localhost
-    let logoBase64 = await getLogoBits(logoUrl, 384);
+    // Reduce width to 256px for maximum hardware compatibility
+    let logoBase64 = await getLogoBits(logoUrl, 256);
     if (!logoBase64 && logoUrl !== '/logo.jpg') {
-        logoBase64 = await getLogoBits('/logo.jpg', 384);
+        logoBase64 = await getLogoBits('/logo.jpg', 256);
     }
 
     const payload = {
