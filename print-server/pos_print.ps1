@@ -1,15 +1,17 @@
-Add-Type -AssemblyName System.Drawing
-
-$jsonPath = $args[0]
-$d = Get-Content $jsonPath | ConvertFrom-Json
+$logFile = Join-Path (Split-Path $MyInvocation.MyCommand.Path) "print.log"
+function Log($msg) { Add-Content $logFile "$(Get-Date -Format 'HH:mm:ss') - $msg" }
+Log "Starting print job with JSON: $jsonPath"
 
 function Logo([string]$path) {
+    Log "Processing logo: $path"
     if (-not (Test-Path $path)) { 
+        Log "LOGO NOT FOUND: $path"
         $msg = [System.Text.Encoding]::ASCII.GetBytes("LOGO NOT FOUND: $path`n")
         return [byte[]](0x1B, 0x61, 0x01) + $msg 
     }
     try {
         $img = [System.Drawing.Image]::FromFile($path)
+        Log "Image loaded: $($img.Width)x$($img.Height)"
         
         $maxW = 384
         $pw = $img.Width
@@ -18,6 +20,7 @@ function Logo([string]$path) {
         if ($pw -gt $maxW) {
             $ph = [int]([Math]::Round($ph * ($maxW / $pw)))
             $pw = $maxW
+            Log "Resized to: $($pw)x$($ph)"
         }
         
         if (($pw % 8) -ne 0) { $pw = [int]([Math]::Ceiling($pw / 8) * 8) }
@@ -29,10 +32,8 @@ function Logo([string]$path) {
         $gfx.DrawImage($img, 0, 0, $pw, $ph)
         $gfx.Dispose(); $img.Dispose()
         
-        # Center alignment command (sent once before the image)
         [byte[]]$result = @(0x1B, 0x61, 0x01)
         
-        # Sliced printing: Send image in chunks of 48 rows to avoid buffer issues
         $sliceH = 48
         $widthBytes = $pw / 8
         $xL = [byte]($widthBytes % 256); $xH = [byte]([Math]::Floor($widthBytes / 256))
@@ -41,7 +42,6 @@ function Logo([string]$path) {
             $currentH = [Math]::Min($sliceH, $ph - $startRow)
             $yL = [byte]($currentH % 256); $yH = [byte]([Math]::Floor($currentH / 256))
             
-            # GS v 0 0 xL xH yL yH
             $hdr = [byte[]](0x1D, 0x76, 0x30, 0x00, $xL, $xH, $yL, $yH)
             $body = New-Object byte[] ($widthBytes * $currentH)
             $idx = 0
@@ -53,9 +53,10 @@ function Logo([string]$path) {
                     for ($bit = 0; $bit -lt 8; $bit++) {
                         if ($col + $bit -lt $pw) {
                             $px = $bmp.GetPixel($col + $bit, $actualRow)
-                            # Better monochrome threshold using average luminosity
-                            $lum = ($px.R + $px.G + $px.B) / 3
-                            if ($lum -lt 180) { $byte = $byte -bor (1 -shl (7 - $bit)) }
+                            # More aggressive threshold: anything not near white is black
+                            if ($px.R -lt 240 -or $px.G -lt 240 -or $px.B -lt 240) { 
+                                $byte = $byte -bor (1 -shl (7 - $bit)) 
+                            }
                         }
                     }
                     $body[$idx++] = [byte]$byte
@@ -65,8 +66,10 @@ function Logo([string]$path) {
         }
         
         $bmp.Dispose()
+        Log "Logo processed successfully, size: $($result.Length) bytes"
         return $result + [byte[]](0x0A)
     } catch {
+        Log "LOGO ERR: $_"
         $msg = [System.Text.Encoding]::ASCII.GetBytes("LOGO ERR: $_`n")
         return [byte[]](0x1B, 0x61, 0x01) + $msg
     }
@@ -74,6 +77,7 @@ function Logo([string]$path) {
 
 function QR([string]$text) {
     if (-not $text) { return [byte[]]@() }
+    Log "Generating QR for: $text"
     $txt = [System.Text.Encoding]::ASCII.GetBytes($text)
     $pL = [byte](($txt.Length + 3) % 256)
     $pH = [byte]([Math]::Floor(($txt.Length + 3) / 256))
@@ -86,24 +90,21 @@ function QR([string]$text) {
       [byte[]](0x1D,0x28,0x6B, 3,0, 49,81,48)
 }
 
-# ── Assemble Bytes ───────────────────────────────────────────────────────────
 [byte[]]$full = @()
-
 if ($d.labelFiles) {
-    # Label Printing Job
-    $full += [byte[]](0x1B, 0x40) # INIT
+    Log "Label Job: $($d.labelFiles.Count) files"
+    $full += [byte[]](0x1B, 0x40)
     for ($c=0; $c -lt $d.copies; $c++) {
         foreach ($file in $d.labelFiles) {
             $full += Logo $file
-            $full += [byte[]](0x0A) # LF
+            $full += [byte[]](0x0A)
         }
     }
     if ($d.cut) {
-        $full += [byte[]](0x1B, 0x64, 0x05) # Feed 5
-        $full += [byte[]](0x1D, 0x56, 0x01) # Full Cut
+        $full += [byte[]](0x1B, 0x64, 0x05, 0x1D, 0x56, 0x01)
     }
 } else {
-    # Receipt Printing Job
+    Log "Receipt Job"
     [byte[]]$part1 = [Convert]::FromBase64String($d.part1)
     [byte[]]$part2 = [Convert]::FromBase64String($d.part2)
     [byte[]]$post  = [Convert]::FromBase64String($d.post)
@@ -112,12 +113,9 @@ if ($d.labelFiles) {
     $full = $part1 + $logo + $part2 + $qr + $post
 }
 
-Write-Host "Total: $($full.Length) bytes"
-
-# ── Transmission ─────────────────────────────────────────────────────────────
+Log "Total bytes to send: $($full.Length)"
 $printer = $d.printer
 try {
-    # Attempt RAW spooling (Most reliable for network/shared printers)
     $rawDef = @"
 using System;
 using System.Runtime.InteropServices;
@@ -160,11 +158,13 @@ public class WP2 {
         [WP2]::EndPagePrinter($h) | Out-Null
         [WP2]::EndDocPrinter($h) | Out-Null
         [WP2]::ClosePrinter($h) | Out-Null
+        Log "Sent to $($printer): OK"
         Write-Host "Sent to $($printer): OK"
     } else {
         throw "Could not open printer $($printer)"
     }
 } catch {
+    Log "Print failed: $_"
     Write-Host "Print failed: $_"
     exit 1
 }
