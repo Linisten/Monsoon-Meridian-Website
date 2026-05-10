@@ -7,7 +7,7 @@
   "type": "module",
   "main": "main.js",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently \"vite\" \"node print-server/server.js\"",
     "dev:all": "concurrently \"npm run dev\" \"node print-server/server.js\"",
     "build": "vite build",
     "lint": "eslint .",

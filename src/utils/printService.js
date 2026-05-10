@@ -119,10 +119,10 @@ export async function printReceipt(tx, settings = {}, printerName = null, logoUr
     const s = settings || {};
     
     // Process logo in browser (Try passed URL, fallback to /logo.jpg)
-    let logoBase64 = await getLogoBits(logoUrl, 384);
+    let logoBase64 = await getLogoBits(logoUrl, 320);
     if (!logoBase64 && logoUrl !== '/logo.jpg') {
         console.log("[PRINT] → Falling back to root /logo.jpg");
-        logoBase64 = await getLogoBits('/logo.jpg', 384);
+        logoBase64 = await getLogoBits('/logo.jpg', 320);
     }
 
     const payload = {

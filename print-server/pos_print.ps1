@@ -21,14 +21,13 @@ function Logo([string]$path) {
         $img = [System.Drawing.Image]::FromFile($path)
         Log "Image loaded: $($img.Width)x$($img.Height)"
         
-        $maxW = 384
+        $maxW = 320
         $pw = $img.Width
         $ph = $img.Height
         
         if ($pw -gt $maxW) {
             $ph = [int]([Math]::Round($ph * ($maxW / $pw)))
             $pw = $maxW
-            Log "Resized to: $($pw)x$($ph)"
         }
         
         if (($pw % 8) -ne 0) { $pw = [int]([Math]::Ceiling($pw / 8) * 8) }
@@ -40,42 +39,32 @@ function Logo([string]$path) {
         $gfx.DrawImage($img, 0, 0, $pw, $ph)
         $gfx.Dispose(); $img.Dispose()
         
-        [byte[]]$result = @(0x1B, 0x61, 0x01)
-        
-        $sliceH = 48
         $widthBytes = $pw / 8
         $xL = [byte]($widthBytes % 256); $xH = [byte]([Math]::Floor($widthBytes / 256))
+        $yL = [byte]($ph % 256); $yH = [byte]([Math]::Floor($ph / 256))
         
-        for ($startRow = 0; $startRow -lt $ph; $startRow += $sliceH) {
-            $currentH = [Math]::Min($sliceH, $ph - $startRow)
-            $yL = [byte]($currentH % 256); $yH = [byte]([Math]::Floor($currentH / 256))
-            
-            $hdr = [byte[]](0x1D, 0x76, 0x30, 0x00, $xL, $xH, $yL, $yH)
-            $body = New-Object byte[] ($widthBytes * $currentH)
-            $idx = 0
-            
-            for ($row = 0; $row -lt $currentH; $row++) {
-                $actualRow = $startRow + $row
-                for ($col = 0; $col -lt $pw; $col += 8) {
-                    $byte = 0
-                    for ($bit = 0; $bit -lt 8; $bit++) {
-                        if ($col + $bit -lt $pw) {
-                            $px = $bmp.GetPixel($col + $bit, $actualRow)
-                            # More aggressive threshold: anything not near white is black
-                            if ($px.R -lt 240 -or $px.G -lt 240 -or $px.B -lt 240) { 
-                                $byte = $byte -bor (1 -shl (7 - $bit)) 
-                            }
+        # Standard GS v 0 command
+        [byte[]]$hdr = @(0x1B, 0x61, 0x01, 0x1D, 0x76, 0x30, 0x00, $xL, $xH, $yL, $yH)
+        $body = New-Object byte[] ($widthBytes * $ph)
+        $idx = 0
+        
+        for ($row = 0; $row -lt $ph; $row++) {
+            for ($col = 0; $col -lt $pw; $col += 8) {
+                $byte = 0
+                for ($bit = 0; $bit -lt 8; $bit++) {
+                    if ($col + $bit -lt $pw) {
+                        $px = $bmp.GetPixel($col + $bit, $row)
+                        if ($px.R -lt 200 -or $px.G -lt 200 -or $px.B -lt 200) { 
+                            $byte = $byte -bor (1 -shl (7 - $bit)) 
                         }
                     }
-                    $body[$idx++] = [byte]$byte
                 }
+                $body[$idx++] = [byte]$byte
             }
-            $result += $hdr + $body
         }
         
         $bmp.Dispose()
-        Log "Logo processed successfully, size: $($result.Length) bytes"
-        return $result + [byte[]](0x0A)
+        return $hdr + $body + [byte[]](0x0A)
     } catch {
         Log "LOGO ERR: $_"
         $msg = [System.Text.Encoding]::ASCII.GetBytes("LOGO ERR: $_`n")
@@ -119,7 +108,8 @@ if ($d.labelFiles) {
     [byte[]]$logo  = @()
     if ($d.logoBits) {
         Log "Using pre-processed logo bits from browser"
-        $logo = [Convert]::FromBase64String($d.logoBits)
+        # Ensure center alignment even for pre-processed bits
+        $logo = [byte[]](0x1B, 0x61, 0x01) + [Convert]::FromBase64String($d.logoBits)
     } else {
         $logo = Logo $d.logo
     }
