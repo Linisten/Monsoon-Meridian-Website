@@ -32,8 +32,8 @@ function Logo([string]$path) {
         $xL = [byte](($pw / 8) % 256); $xH = [byte]([Math]::Floor(($pw / 8) / 256))
         $yL = [byte]($ph % 256); $yH = [byte]([Math]::Floor($ph / 256))
         
-        # GS v 0 0 xL xH yL yH
-        $hdr = [byte[]](0x1B,0x61,0x01, 0x1D,0x76,0x30,0x00, $xL,$xH,$yL,$yH)
+        # LF + GS v 0 0 xL xH yL yH
+        $hdr = [byte[]](0x0A, 0x1B,0x61,0x01, 0x1D,0x76,0x30,0x00, $xL,$xH,$yL,$yH)
         $body = New-Object byte[] ($pw/8 * $ph)
         $idx = 0
         for ($row=0; $row -lt $ph; $row++) {

@@ -60,7 +60,7 @@ const ThermalReceipt = ({ tx, settings }) => {
     <div id="thermal-receipt" style={{ backgroundColor: 'white', padding: '5px', width: '100%', boxSizing: 'border-box', fontFamily: "'Inter', sans-serif", fontSize: '13px', color: '#000', fontWeight: 500, lineHeight: 1.3 }}>
       {/* ── Header ── */}
       <div style={{ textAlign: 'center', borderBottom: '1.5px solid #000', paddingBottom: '0.5rem', marginBottom: '0.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-        <img src={logoUrl} alt="Logo" style={{ width: '300px', height: '120px', objectFit: 'contain', marginBottom: '8px' }} onError={(e) => e.target.style.display = 'none'} />
+        <img src="/logo.jpg" alt="Logo" style={{ width: '300px', height: '120px', objectFit: 'contain', marginBottom: '8px' }} onError={(e) => { e.target.src = logoUrl; }} />
         {settings?.address && <p style={{ margin: '4px 0', fontSize: '13px', color: '#000', fontWeight: 700 }}>{settings.address}</p>}
         <div style={{ margin: '0', fontSize: '12px', color: '#000', fontWeight: 700 }}>
           {settings?.phone && <div>Tel: {settings.phone}</div>}
