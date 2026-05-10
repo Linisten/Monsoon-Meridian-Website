@@ -1,6 +1,14 @@
-$logFile = Join-Path (Split-Path $MyInvocation.MyCommand.Path) "print.log"
+$logFile = "print.log"
 function Log($msg) { Add-Content $logFile "$(Get-Date -Format 'HH:mm:ss') - $msg" }
+
+$jsonPath = $args[0]
 Log "Starting print job with JSON: $jsonPath"
+if (-not $jsonPath) { Log "ERROR: No JSON path provided"; exit 1 }
+
+$d = Get-Content $jsonPath | ConvertFrom-Json
+if (-not $d) { Log "ERROR: Failed to parse JSON"; exit 1 }
+
+Add-Type -AssemblyName System.Drawing
 
 function Logo([string]$path) {
     Log "Processing logo: $path"
