@@ -5,15 +5,12 @@
   "description": "Monsoon Meridian POS - High Performance Professional POS Application",
   "author": "Monsoon Meridian",
   "type": "module",
-  "main": "main.js",
   "scripts": {
     "dev": "concurrently \"vite\" \"node print-server/server.js\"",
     "dev:all": "concurrently \"npm run dev\" \"node print-server/server.js\"",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview",
-    "electron": "electron .",
-    "dist": "npm run build && electron-builder"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.100.1",
@@ -38,38 +35,10 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.2.1",
-    "electron": "^31.0.0",
-    "electron-builder": "^24.13.3",
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.4.0",
     "vite": "^5.4.11"
-  },
-  "build": {
-    "appId": "com.monsoon.pos",
-    "productName": "Monsoon Meridian POS",
-    "files": [
-      "dist/**/*",
-      "main.js",
-      "preload.js",
-      "print-server/**/*",
-      "package.json",
-      "node_modules/**/*",
-      ".env"
-    ],
-    "win": {
-      "target": "nsis",
-      "icon": "public/icon.png"
-    },
-    "asar": false,
-    "nsis": {
-      "oneClick": true,
-      "perMachine": false,
-      "allowToChangeInstallationDirectory": false,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "Monsoon Meridian POS"
-    }
   }
 }

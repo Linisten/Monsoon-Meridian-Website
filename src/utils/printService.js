@@ -84,7 +84,6 @@ async function getLogoBits(url, maxWidth = 384) {
                     console.warn("[PRINT] → Logo processing resulted in an empty image (all white).");
                     resolve(null); return;
                 }
-                const widthInBytes = Math.ceil(w / 8);
                 const result = [];
 
                 // Format 1: GS v 0 (Raster)
