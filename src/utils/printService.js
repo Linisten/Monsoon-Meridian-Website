@@ -84,45 +84,41 @@ async function getLogoBits(url, maxWidth = 384) {
                     console.warn("[PRINT] → Logo processing resulted in an empty image (all white).");
                     resolve(null); return;
                 }
-                // Use ESC * mode (Compatible with almost all printers)
-                // We'll use 24-dot double density (m=33)
-                const headerAlign = [0x1B, 0x61, 0x01]; // Center
+                // Use ESC * mode (8-dot single density, m=0)
+                // This is the most compatible mode ever created.
                 const result = [];
+                result.push(0x1B, 0x61, 0x01); // Center
+                result.push(0x0A, 0x0A);       // Clear space before logo
                 
-                // For ESC * m=33, we process in 24-pixel vertical strips
-                result.push(0x1B, 0x33, 24); // Set line spacing to 24 dots to avoid gaps
-                
-                for (let y = 0; y < h; y += 24) {
-                    result.push(...headerAlign);
+                // Process in 8-pixel vertical strips
+                for (let y = 0; y < h; y += 8) {
                     const nL = w % 256;
                     const nH = Math.floor(w / 256);
-                    result.push(0x1B, 0x2A, 33, nL, nH);
+                    result.push(0x1B, 0x2A, 0, nL, nH); // m=0 (8-dot)
                     
                     for (let x = 0; x < w; x++) {
-                        for (let k = 0; k < 3; k++) {
-                            let byte = 0;
-                            for (let b = 0; b < 8; b++) {
-                                const currY = y + (k * 8) + b;
-                                if (currY < h) {
-                                    const i = (currY * canvas.width + x) * 4;
-                                    const avg = (data[i] + data[i+1] + data[i+2]) / 3;
-                                    if (avg < 200) {
-                                        byte |= (0x80 >> b);
-                                    }
+                        let byte = 0;
+                        for (let b = 0; b < 8; b++) {
+                            const currY = y + b;
+                            if (currY < h) {
+                                const i = (currY * canvas.width + x) * 4;
+                                const avg = (data[i] + data[i+1] + data[i+2]) / 3;
+                                if (avg < 200) {
+                                    byte |= (0x80 >> b);
                                 }
                             }
-                            result.push(byte);
                         }
+                        result.push(byte);
                     }
-                    result.push(0x0A);
+                    result.push(0x0A); // Line feed after each 8-dot strip
                 }
-                result.push(0x1B, 0x32); // Reset line spacing to default
                 
+                result.push(0x0A); // Clear space after logo
                 const full = new Uint8Array(result);
                 let binary = '';
                 for (let i = 0; i < full.byteLength; i++) binary += String.fromCharCode(full[i]);
                 const base64 = window.btoa(binary);
-                console.log("[PRINT] → Logo (ESC *) processed successfully! Size:", base64.length);
+                console.log("[PRINT] → Logo (8-dot) processed successfully! Size:", base64.length);
                 resolve(base64);
             } catch (e) {
                 console.error("[PRINT] → Logo processing error (canvas):", e);
