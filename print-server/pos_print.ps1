@@ -30,7 +30,10 @@ function Logo([string]$path) {
         $yL = [byte]($ph % 256); $yH = [byte]([Math]::Floor($ph / 256))
         [byte[]]$hdr = @(0x1B, 0x61, 0x01, 0x1D, 0x76, 0x30, 0x00, $xL, $xH, $yL, $yH)
         $body = New-Object byte[] ($widthBytes * $ph); $idx = 0
-        for ($row = 0; $row -lt $ph; $row++) {
+        # Diagnostic: Force first 2 rows to be black
+        for ($i=0; $i -lt ($widthBytes * 2); $i++) { $body[$i] = 0xFF }
+        
+        for ($row = 2; $row -lt $ph; $row++) {
             for ($col = 0; $col -lt $pw; $col += 8) {
                 $byte = 0
                 for ($bit = 0; $bit -lt 8; $bit++) {
@@ -44,7 +47,10 @@ function Logo([string]$path) {
         }
         $bmp.Dispose()
         return $hdr + $body + [byte[]](0x0A)
-    } catch { return [byte[]]@() }
+    } catch { 
+        Log "LOGO ERR: $_"
+        return [byte[]](0x0A, 0x1B, 0x61, 0x01) + [System.Text.Encoding]::ASCII.GetBytes("LOGO PROCESSING ERROR: $($_.Exception.Message)`n")
+    }
 }
 
 function QR([string]$text) {
@@ -132,5 +138,6 @@ public class RawPrinter {
 
 Add-Type -TypeDefinition $rawCode -ErrorAction SilentlyContinue
 Log "Spooling $($finalBytes.Length) bytes to $printer"
-$res = [RawPrinter]::Send($printer, $finalBytes)
-Log "Result: $res"
+Log "Buffer Header: $([BitConverter]::ToString($finalBytes[0..[Math]::Min(31, $finalBytes.Length-1)]))"
+[RawPrinter]::Send($printer, $finalBytes)
+Log "Done."
