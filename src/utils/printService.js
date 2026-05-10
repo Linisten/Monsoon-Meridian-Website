@@ -128,9 +128,19 @@ async function getLogoBits(url, maxWidth = 384) {
                 resolve(null);
             }
         };
-        img.onerror = (e) => {
-            console.error("[PRINT] → Failed to load logo image file:", url, e);
-            resolve(null);
+        img.onerror = () => {
+            console.warn("[PRINT] → Logo image failed to load, generating diagnostic fallback box.");
+            const fallbackW = 128;
+            const fallbackH = 64;
+            const widthInBytes = Math.ceil(fallbackW / 8);
+            const bits = new Uint8Array(widthInBytes * fallbackH);
+            for (let i = 0; i < bits.length; i++) bits[i] = 0xFF; // Solid black box
+            
+            const result = [];
+            result.push(0x1D, 0x76, 0x30, 0, widthInBytes % 256, Math.floor(widthInBytes / 256), fallbackH % 256, Math.floor(fallbackH / 256));
+            for (let i = 0; i < bits.length; i++) result.push(bits[i]);
+            result.push(0x0A);
+            resolve(Array.from(new Uint8Array(result)));
         };
         img.src = url;
     });
@@ -149,12 +159,9 @@ export async function printReceipt(tx, settings = {}, printerName = null, logoUr
 
     const s = settings || {};
     
-    // Use 128px for absolute maximum compatibility
-    let logoBase64 = await getLogoBits(logoUrl, 128);
-    if (!logoBase64 && logoUrl !== '/logo.jpg') {
-        logoBase64 = await getLogoBits('/logo.jpg', 128);
-    }
-
+    // Re-enable browser processing with embedded logo fallback
+    let logoBase64 = await getLogoBits(logoUrl, 200);
+    
     const payload = {
       receipt: {
         id:             tx.id,
