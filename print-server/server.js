@@ -216,11 +216,24 @@ async function printReceipt(data, settings, printerName) {
   const jsonFile = path.join(os.tmpdir(), `mm_${Date.now()}.json`);
   const ps1File  = path.resolve(__dirname, 'pos_print.ps1');
 
+  // Robust logo discovery
+  const s = req.body.settings || {};
+  let logoPath = s.company_logo || 'src/assets/logo.jpg';
+  const possiblePaths = [
+    path.resolve(process.cwd(), logoPath),
+    path.resolve(process.cwd(), 'src/assets/logo.jpg'),
+    path.resolve(process.cwd(), 'src/assets/logo.png'),
+    path.resolve(process.cwd(), 'public/logo.jpg'),
+    path.resolve(process.cwd(), 'public/logo.png')
+  ];
+  const finalLogoPath = possiblePaths.find(p => fs.existsSync(p)) || possiblePaths[0];
+
   fs.writeFileSync(jsonFile, JSON.stringify({
     part1:   part1.toString('base64'),
     part2:   part2.toString('base64'),
     post:    post.toString('base64'),
     qr:      'https://instagram.com/monsoonmeridian',
+    logo:    finalLogoPath,
     logoBits:    req.body.logoBits || null, // Pre-processed bits from browser
     printer:     printerName,
   }));
