@@ -242,19 +242,18 @@ async function printReceipt(data, settings, printerName) {
 // ── Printers ────────────────────────────────────────────────────────────────
 function getPrinters() {
   try {
-    const out = execSync('wmic printer get name,default /format:list', { timeout: 5000 }).toString();
-    const list = [];
-    let cur = {};
-    for (const line of out.split('\n')) {
-      const eq = line.indexOf('=');
-      if (eq < 0) continue;
-      const key = line.slice(0, eq).trim();
-      const val = line.slice(eq + 1).trim();
-      if (key === 'Default') cur.isDefault = val === 'TRUE';
-      if (key === 'Name') { cur.name = val; if (val) { list.push(cur); } cur = {}; }
-    }
-    return list;
-  } catch { return []; }
+    const cmd = 'powershell -Command "Get-Printer | Select-Object Name, IsDefault | ConvertTo-Json"';
+    const out = execSync(cmd).toString();
+    const data = JSON.parse(out);
+    const list = Array.isArray(data) ? data : [data];
+    return list.map(p => ({
+      name: p.Name,
+      isDefault: p.IsDefault
+    }));
+  } catch (e) {
+    console.error('[PRINTERS] → Failed to list printers via PowerShell:', e.message);
+    return [];
+  }
 }
 
 // ── Routes ───────────────────────────────────────────────────────────────────

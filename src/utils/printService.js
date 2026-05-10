@@ -73,7 +73,7 @@ async function getLogoBits(url, maxWidth = 384) {
                     for (let x = 0; x < canvas.width; x++) {
                         const i = (y * canvas.width + x) * 4;
                         const avg = (data[i] + data[i+1] + data[i+2]) / 3;
-                        if (avg < 200) { // Aggressive threshold
+                        if (avg < 240) { // Extremely aggressive threshold (anything non-white is black)
                             const byteIdx = y * widthInBytes + Math.floor(x / 8);
                             bits[byteIdx] |= (0x80 >> (x % 8));
                             hasPixels = true;

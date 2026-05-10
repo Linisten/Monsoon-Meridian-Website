@@ -108,8 +108,9 @@ if ($d.labelFiles) {
     [byte[]]$logo  = @()
     if ($d.logoBits) {
         Log "Using pre-processed logo bits from browser"
-        # Ensure center alignment even for pre-processed bits
-        $logo = [byte[]](0x1B, 0x61, 0x01) + [Convert]::FromBase64String($d.logoBits)
+        $bits = [Convert]::FromBase64String($d.logoBits)
+        Log "Logo Data Start: $($bits[0..7] -join ', ')"
+        $logo = [byte[]](0x1B, 0x61, 0x01) + $bits
     } else {
         $logo = Logo $d.logo
     }
