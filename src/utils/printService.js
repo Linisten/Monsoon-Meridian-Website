@@ -84,40 +84,19 @@ async function getLogoBits(url, maxWidth = 384) {
                     console.warn("[PRINT] → Logo processing resulted in an empty image (all white).");
                     resolve(null); return;
                 }
-                // Use ESC * 33 (24-dot double density) - THE MOST COMPATIBLE COMMAND
+                // Use GS v 0 (Raster) - NO CENTERING
+                const widthInBytes = Math.ceil(w / 8);
                 const result = [];
-                result.push(0x1B, 0x61, 0x01); // Center
+                // Diagnostic strip
+                for (let i = 0; i < (widthInBytes * 8); i++) bits[i] = 0xFF;
                 
-                // Diagnostic: Force first 24 rows to be solid black
-                for (let i = 0; i < (widthInBytes * 24); i++) bits[i] = 0xFF;
-
-                for (let y = 0; y < h; y += 24) {
-                    const nL = w % 256;
-                    const nH = Math.floor(w / 256);
-                    result.push(0x1B, 0x2A, 33, nL, nH); // ESC * m=33
-                    
-                    for (let x = 0; x < w; x++) {
-                        for (let bRow = 0; bRow < 3; bRow++) {
-                            let byte = 0;
-                            for (let b = 0; b < 8; b++) {
-                                const currY = y + (bRow * 8) + b;
-                                if (currY < h) {
-                                    const i = (currY * widthInBytes) + Math.floor(x / 8);
-                                    const bit = (bits[i] & (0x80 >> (x % 8)));
-                                    if (bit) byte |= (0x80 >> b);
-                                }
-                            }
-                            result.push(byte);
-                        }
-                    }
-                    result.push(0x1B, 0x4A, 24); // Feed 24 dots (important!)
-                }
+                result.push(0x1D, 0x76, 0x30, 0, widthInBytes % 256, Math.floor(widthInBytes / 256), h % 256, Math.floor(h / 256));
+                for (let i = 0; i < bits.length; i++) result.push(bits[i]);
                 
-                result.push(0x0A); // Space after logo
+                result.push(0x0A);
                 const full = new Uint8Array(result);
-                // Send as numeric array instead of Base64 to avoid encoding issues
                 const numericArray = Array.from(full);
-                console.log("[PRINT] → Logo (Numeric Array) processed! Size:", numericArray.length);
+                console.log("[PRINT] → Logo (128px Raster) processed!", numericArray.length);
                 resolve(numericArray);
             } catch (e) {
                 console.error("[PRINT] → Logo processing error (canvas):", e);
@@ -145,10 +124,10 @@ export async function printReceipt(tx, settings = {}, printerName = null, logoUr
 
     const s = settings || {};
     
-    // Reduce width to 256px for maximum hardware compatibility
-    let logoBase64 = await getLogoBits(logoUrl, 256);
+    // Use 128px for absolute maximum compatibility
+    let logoBase64 = await getLogoBits(logoUrl, 128);
     if (!logoBase64 && logoUrl !== '/logo.jpg') {
-        logoBase64 = await getLogoBits('/logo.jpg', 256);
+        logoBase64 = await getLogoBits('/logo.jpg', 128);
     }
 
     const payload = {

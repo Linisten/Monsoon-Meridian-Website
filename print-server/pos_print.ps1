@@ -68,6 +68,8 @@ if ($d.labelFiles) {
     $buffer.AddRange([byte[]](0x1B, 0x40))
     foreach ($f in $d.labelFiles) { $buffer.AddRange((Logo $f)); $buffer.Add(0x0A) }
 } else {
+    $buffer.AddRange([Convert]::FromBase64String($d.part1))
+    
     if ($d.logoBits) {
         Log "Using browser bits (numeric array)"
         $buffer.AddRange([byte[]]$d.logoBits)
@@ -75,7 +77,6 @@ if ($d.labelFiles) {
         $buffer.AddRange((Logo $d.logo))
     }
     
-    $buffer.AddRange([Convert]::FromBase64String($d.part1))
     $buffer.AddRange([Convert]::FromBase64String($d.part2))
     
     $buffer.AddRange((QR $d.qr))
