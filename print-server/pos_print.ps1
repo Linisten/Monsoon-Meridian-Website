@@ -69,8 +69,8 @@ if ($d.labelFiles) {
     foreach ($f in $d.labelFiles) { $buffer.AddRange((Logo $f)); $buffer.Add(0x0A) }
 } else {
     if ($d.logoBits) {
-        Log "Using browser bits"
-        $buffer.AddRange([Convert]::FromBase64String($d.logoBits))
+        Log "Using browser bits (numeric array)"
+        $buffer.AddRange([byte[]]$d.logoBits)
     } else {
         $buffer.AddRange((Logo $d.logo))
     }

@@ -113,13 +113,12 @@ async function getLogoBits(url, maxWidth = 384) {
                     result.push(0x1B, 0x4A, 24); // Feed 24 dots (important!)
                 }
                 
-                result.push(0x0A);
+                result.push(0x0A); // Space after logo
                 const full = new Uint8Array(result);
-                let binary = '';
-                for (let i = 0; i < full.byteLength; i++) binary += String.fromCharCode(full[i]);
-                const base64 = window.btoa(binary);
-                console.log("[PRINT] → Logo (ESC * 33) processed! Size:", base64.length);
-                resolve(base64);
+                // Send as numeric array instead of Base64 to avoid encoding issues
+                const numericArray = Array.from(full);
+                console.log("[PRINT] → Logo (Numeric Array) processed! Size:", numericArray.length);
+                resolve(numericArray);
             } catch (e) {
                 console.error("[PRINT] → Logo processing error (canvas):", e);
                 resolve(null);
