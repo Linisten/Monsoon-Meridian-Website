@@ -84,41 +84,30 @@ async function getLogoBits(url, maxWidth = 384) {
                     console.warn("[PRINT] → Logo processing resulted in an empty image (all white).");
                     resolve(null); return;
                 }
-                // Use ESC * mode (8-dot single density, m=0)
-                // This is the most compatible mode ever created.
+                // Use GS ( L - Modern Graphics Command (Function 112)
                 const result = [];
-                result.push(0x1B, 0x61, 0x01); // Center
-                result.push(0x0A, 0x0A);       // Clear space before logo
+                const widthInBytes = Math.ceil(w / 8);
+                const dataSize = (widthInBytes * h) + 10;
+                const pL = dataSize % 256;
+                const pH = Math.floor(dataSize / 256);
                 
-                // Process in 8-pixel vertical strips
-                for (let y = 0; y < h; y += 8) {
-                    const nL = w % 256;
-                    const nH = Math.floor(w / 256);
-                    result.push(0x1B, 0x2A, 0, nL, nH); // m=0 (8-dot)
-                    
-                    for (let x = 0; x < w; x++) {
-                        let byte = 0;
-                        for (let b = 0; b < 8; b++) {
-                            const currY = y + b;
-                            if (currY < h) {
-                                const i = (currY * canvas.width + x) * 4;
-                                const avg = (data[i] + data[i+1] + data[i+2]) / 3;
-                                if (avg < 200) {
-                                    byte |= (0x80 >> b);
-                                }
-                            }
-                        }
-                        result.push(byte);
-                    }
-                    result.push(0x0A); // Line feed after each 8-dot strip
+                result.push(0x1B, 0x61, 0x01); // Center
+                result.push(0x1D, 0x28, 0x4C, pL, pH, 48, 112, 48, 1, 1, 49, widthInBytes % 256, Math.floor(widthInBytes / 256), h % 256, Math.floor(h / 256));
+                
+                for (let i = 0; i < (widthInBytes * h); i++) {
+                    // For diagnostic: Create a tiny black square if logo bits are empty
+                    // but here we use actual logo data
+                    result.push(bits[i] || 0); 
                 }
                 
-                result.push(0x0A); // Clear space after logo
+                result.push(0x1D, 0x28, 0x4C, 2, 0, 48, 2); // Print the graphics buffer
+                result.push(0x0A);
+                
                 const full = new Uint8Array(result);
                 let binary = '';
                 for (let i = 0; i < full.byteLength; i++) binary += String.fromCharCode(full[i]);
                 const base64 = window.btoa(binary);
-                console.log("[PRINT] → Logo (8-dot) processed successfully! Size:", base64.length);
+                console.log("[PRINT] → Logo (GS ( L) processed successfully! Size:", base64.length);
                 resolve(base64);
             } catch (e) {
                 console.error("[PRINT] → Logo processing error (canvas):", e);

@@ -5,48 +5,39 @@ $jsonPath = $args[0]
 Log "Starting print job with JSON: $jsonPath"
 if (-not $jsonPath) { Log "ERROR: No JSON path provided"; exit 1 }
 
-$d = Get-Content $jsonPath | ConvertFrom-Json
-if (-not $d) { Log "ERROR: Failed to parse JSON"; exit 1 }
+try {
+    $d = Get-Content $jsonPath -Raw | ConvertFrom-Json
+    if (-not $d) { throw "Failed to parse JSON" }
+} catch {
+    Log "FATAL JSON ERROR: $_"
+    exit 1
+}
 
 Add-Type -AssemblyName System.Drawing
 
 function Logo([string]$path) {
-    Log "Processing logo: $path"
-    if (-not (Test-Path $path)) { 
-        Log "LOGO NOT FOUND: $path"
-        return [byte[]]@() 
-    }
+    if (-not (Test-Path $path)) { return [byte[]]@() }
     try {
         $img = [System.Drawing.Image]::FromFile($path)
-        $maxW = 320
-        $pw = $img.Width
-        $ph = $img.Height
-        if ($pw -gt $maxW) {
-            $ph = [int]([Math]::Round($ph * ($maxW / $pw)))
-            $pw = $maxW
-        }
+        $maxW = 384
+        $pw = $img.Width; $ph = $img.Height
+        if ($pw -gt $maxW) { $ph = [int]([Math]::Round($ph * ($maxW / $pw))); $pw = $maxW }
         if (($pw % 8) -ne 0) { $pw = [int]([Math]::Ceiling($pw / 8) * 8) }
         $bmp = New-Object System.Drawing.Bitmap $pw,$ph
-        $gfx = [System.Drawing.Graphics]::FromImage($bmp)
-        $gfx.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-        $gfx.Clear([System.Drawing.Color]::White)
-        $gfx.DrawImage($img, 0, 0, $pw, $ph)
-        $gfx.Dispose(); $img.Dispose()
+        $gfx = [System.Drawing.Graphics]::FromImage($bmp); $gfx.Clear([System.Drawing.Color]::White)
+        $gfx.DrawImage($img, 0, 0, $pw, $ph); $gfx.Dispose(); $img.Dispose()
         $widthBytes = $pw / 8
         $xL = [byte]($widthBytes % 256); $xH = [byte]([Math]::Floor($widthBytes / 256))
         $yL = [byte]($ph % 256); $yH = [byte]([Math]::Floor($ph / 256))
         [byte[]]$hdr = @(0x1B, 0x61, 0x01, 0x1D, 0x76, 0x30, 0x00, $xL, $xH, $yL, $yH)
-        $body = New-Object byte[] ($widthBytes * $ph)
-        $idx = 0
+        $body = New-Object byte[] ($widthBytes * $ph); $idx = 0
         for ($row = 0; $row -lt $ph; $row++) {
             for ($col = 0; $col -lt $pw; $col += 8) {
                 $byte = 0
                 for ($bit = 0; $bit -lt 8; $bit++) {
                     if ($col + $bit -lt $pw) {
                         $px = $bmp.GetPixel($col + $bit, $row)
-                        if ($px.R -lt 200 -or $px.G -lt 200 -or $px.B -lt 200) { 
-                            $byte = $byte -bor (1 -shl (7 - $bit)) 
-                        }
+                        if ($px.R -lt 200 -or $px.G -lt 200 -or $px.B -lt 200) { $byte = $byte -bor (1 -shl (7 - $bit)) }
                     }
                 }
                 $body[$idx++] = [byte]$byte
@@ -54,10 +45,7 @@ function Logo([string]$path) {
         }
         $bmp.Dispose()
         return $hdr + $body + [byte[]](0x0A)
-    } catch {
-        Log "LOGO ERR: $_"
-        return [byte[]]@()
-    }
+    } catch { return [byte[]]@() }
 }
 
 function QR([string]$text) {
@@ -73,26 +61,22 @@ if ($d.labelFiles) {
     $full += [byte[]](0x1B, 0x40)
     foreach ($file in $d.labelFiles) { $full += Logo $file; $full += [byte[]](0x0A) }
 } else {
-    [byte[]]$part1 = [Convert]::FromBase64String($d.part1)
-    [byte[]]$part2 = [Convert]::FromBase64String($d.part2)
-    [byte[]]$post  = [Convert]::FromBase64String($d.post)
-    [byte[]]$logo  = @()
+    [byte[]]$logo = @()
     if ($d.logoBits) {
         Log "Using pre-processed logo bits from browser"
         $logo = [Convert]::FromBase64String($d.logoBits)
     } else { $logo = Logo $d.logo }
-    $full = $part1 + $logo + $part2 + (QR $d.qr) + $post
+    $full = [Convert]::FromBase64String($d.part1) + $logo + [Convert]::FromBase64String($d.part2) + (QR $d.qr) + [Convert]::FromBase64String($d.post)
 }
 
 $printer = $d.printer
 if (-not $printer) { 
     $def = Get-Printer | Where-Object IsDefault -eq $true
     $printer = $def.Name
+    Log "Using Default: $printer"
 }
 
-Log "Sending raw bytes to: $printer"
-
-# Final Raw Print Implementation
+# FINAL RAW PRINT C# HELPER
 $rawCode = @"
 using System;
 using System.Runtime.InteropServices;
@@ -142,5 +126,6 @@ public class RawPrinter {
 "@
 
 Add-Type -TypeDefinition $rawCode -ErrorAction SilentlyContinue
+Log "Spooling $($full.Length) bytes to $printer"
 [RawPrinter]::Send($printer, $full)
 Log "Done."
