@@ -211,6 +211,7 @@ async function printReceipt(data, settings, printerName) {
   logoPath = path.normalize(logoPath);
   
   const { part1, part2, post } = buildReceipt(data, settings);
+  console.log(`[PRINT] → Logo path: ${logoPath}`);
 
   const jsonFile = path.join(os.tmpdir(), `mm_${Date.now()}.json`);
   const ps1File  = path.resolve(__dirname, 'pos_print.ps1');

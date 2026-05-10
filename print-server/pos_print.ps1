@@ -29,27 +29,43 @@ function Logo([string]$path) {
         $gfx.DrawImage($img, 0, 0, $pw, $ph)
         $gfx.Dispose(); $img.Dispose()
         
-        $xL = [byte](($pw / 8) % 256); $xH = [byte]([Math]::Floor(($pw / 8) / 256))
-        $yL = [byte]($ph % 256); $yH = [byte]([Math]::Floor($ph / 256))
+        # Center alignment command (sent once before the image)
+        [byte[]]$result = @(0x1B, 0x61, 0x01)
         
-        # GS v 0 0 xL xH yL yH
-        $hdr = [byte[]](0x1B,0x61,0x01, 0x1D,0x76,0x30,0x00, $xL,$xH,$yL,$yH)
-        $body = New-Object byte[] ($pw/8 * $ph)
-        $idx = 0
-        for ($row=0; $row -lt $ph; $row++) {
-            for ($col=0; $col -lt $pw; $col+=8) {
-                $byte = 0
-                for ($bit=0; $bit -lt 8; $bit++) {
-                    if ($col+$bit -lt $pw) {
-                        $px = $bmp.GetPixel($col+$bit, $row)
-                        if ($px.GetBrightness() -lt 0.71) { $byte = $byte -bor (1 -shl (7-$bit)) }
+        # Sliced printing: Send image in chunks of 48 rows to avoid buffer issues
+        $sliceH = 48
+        $widthBytes = $pw / 8
+        $xL = [byte]($widthBytes % 256); $xH = [byte]([Math]::Floor($widthBytes / 256))
+        
+        for ($startRow = 0; $startRow -lt $ph; $startRow += $sliceH) {
+            $currentH = [Math]::Min($sliceH, $ph - $startRow)
+            $yL = [byte]($currentH % 256); $yH = [byte]([Math]::Floor($currentH / 256))
+            
+            # GS v 0 0 xL xH yL yH
+            $hdr = [byte[]](0x1D, 0x76, 0x30, 0x00, $xL, $xH, $yL, $yH)
+            $body = New-Object byte[] ($widthBytes * $currentH)
+            $idx = 0
+            
+            for ($row = 0; $row -lt $currentH; $row++) {
+                $actualRow = $startRow + $row
+                for ($col = 0; $col -lt $pw; $col += 8) {
+                    $byte = 0
+                    for ($bit = 0; $bit -lt 8; $bit++) {
+                        if ($col + $bit -lt $pw) {
+                            $px = $bmp.GetPixel($col + $bit, $actualRow)
+                            # Better monochrome threshold using average luminosity
+                            $lum = ($px.R + $px.G + $px.B) / 3
+                            if ($lum -lt 180) { $byte = $byte -bor (1 -shl (7 - $bit)) }
+                        }
                     }
+                    $body[$idx++] = [byte]$byte
                 }
-                $body[$idx++] = [byte]$byte
             }
+            $result += $hdr + $body
         }
+        
         $bmp.Dispose()
-        return [byte[]]($hdr + $body + [byte[]](0x0A))
+        return $result + [byte[]](0x0A)
     } catch {
         $msg = [System.Text.Encoding]::ASCII.GetBytes("LOGO ERR: $_`n")
         return [byte[]](0x1B, 0x61, 0x01) + $msg
