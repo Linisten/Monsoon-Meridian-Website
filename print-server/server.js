@@ -242,17 +242,23 @@ async function printReceipt(data, settings, printerName) {
 // ── Printers ────────────────────────────────────────────────────────────────
 function getPrinters() {
   try {
-    const cmd = 'powershell -Command "Get-Printer | Select-Object Name, IsDefault | ConvertTo-Json"';
-    const out = execSync(cmd).toString();
+    const cmd = 'powershell -Command "Get-Printer | Select-Object Name, IsDefault | ConvertTo-Json -Compress"';
+    const out = execSync(cmd).toString().trim();
+    if (!out) return [];
     const data = JSON.parse(out);
     const list = Array.isArray(data) ? data : [data];
     return list.map(p => ({
       name: p.Name,
-      isDefault: p.IsDefault
+      isDefault: p.IsDefault || false
     }));
   } catch (e) {
-    console.error('[PRINTERS] → Failed to list printers via PowerShell:', e.message);
-    return [];
+    // Fallback: try a simpler command if JSON fails
+    try {
+        const out = execSync('powershell -Command "Get-Printer | Name"').toString();
+        return out.split('\n').filter(n => n.trim()).map(n => ({ name: n.trim(), isDefault: false }));
+    } catch (e2) {
+        return [];
+    }
   }
 }
 
