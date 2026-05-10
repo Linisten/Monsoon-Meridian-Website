@@ -60,13 +60,16 @@ if ($d.labelFiles) {
     foreach ($f in $d.labelFiles) { $buffer.AddRange((Logo $f)); $buffer.Add(0x0A) }
 } else {
     $buffer.AddRange([Convert]::FromBase64String($d.part1))
+    $buffer.AddRange([Convert]::FromBase64String($d.part2))
+    
+    # MOVE LOGO TO THE BOTTOM (ABOVE QR)
     if ($d.logoBits) {
-        Log "Using browser bits"
+        Log "Using browser bits at the bottom"
         $buffer.AddRange([Convert]::FromBase64String($d.logoBits))
     } else {
         $buffer.AddRange((Logo $d.logo))
     }
-    $buffer.AddRange([Convert]::FromBase64String($d.part2))
+    
     $buffer.AddRange((QR $d.qr))
     $buffer.AddRange([Convert]::FromBase64String($d.post))
 }
@@ -95,7 +98,7 @@ public class RawPrinter {
     [DllImport("winspool.Drv", EntryPoint = "ClosePrinter", SetLastError = true)]
     public static extern bool ClosePrinter(IntPtr hPrinter);
     [DllImport("winspool.Drv", EntryPoint = "StartDocPrinterA", SetLastError = true, CharSet = CharSet.Ansi)]
-    public static extern bool StartDocPrinter(IntPtr hPrinter, Int32 level, [In, MarshalAs(UnmanagedType.LPStruct)] DI di);
+    public static extern int StartDocPrinter(IntPtr hPrinter, int level, [In, MarshalAs(UnmanagedType.LPStruct)] DI di);
     [DllImport("winspool.Drv", EntryPoint = "EndDocPrinter", SetLastError = true)]
     public static extern bool EndDocPrinter(IntPtr hPrinter);
     [DllImport("winspool.Drv", EntryPoint = "StartPagePrinter", SetLastError = true)]
@@ -103,30 +106,29 @@ public class RawPrinter {
     [DllImport("winspool.Drv", EntryPoint = "EndPagePrinter", SetLastError = true)]
     public static extern bool EndPagePrinter(IntPtr hPrinter);
     [DllImport("winspool.Drv", EntryPoint = "WritePrinter", SetLastError = true)]
-    public static extern bool WritePrinter(IntPtr hPrinter, IntPtr pBytes, Int32 dwCount, out Int32 dwWritten);
+    public static extern bool WritePrinter(IntPtr hPrinter, IntPtr pBytes, int dwCount, out int dwWritten);
 
-    public static void Send(string name, byte[] data) {
+    public static string Send(string name, byte[] data) {
         IntPtr h = new IntPtr(0);
         DI di = new DI(); di.pDocName = "Monsoon POS"; di.pDataType = "RAW";
-        if (OpenPrinter(name, out h, IntPtr.Zero)) {
-            if (StartDocPrinter(h, 1, di) != 0) {
-                if (StartPagePrinter(h)) {
-                    IntPtr p = Marshal.AllocCoTaskMem(data.Length);
-                    Marshal.Copy(data, 0, p, data.Length);
-                    Int32 w = 0;
-                    WritePrinter(h, p, data.Length, out w);
-                    EndPagePrinter(h);
-                    Marshal.FreeCoTaskMem(p);
-                }
-                EndDocPrinter(h);
-            }
-            ClosePrinter(h);
-        }
+        if (!OpenPrinter(name, out h, IntPtr.Zero)) return "OpenPrinter Failed: " + Marshal.GetLastWin32Error();
+        if (StartDocPrinter(h, 1, di) == 0) { ClosePrinter(h); return "StartDocPrinter Failed: " + Marshal.GetLastWin32Error(); }
+        if (!StartPagePrinter(h)) { EndDocPrinter(h); ClosePrinter(h); return "StartPagePrinter Failed: " + Marshal.GetLastWin32Error(); }
+        
+        IntPtr p = Marshal.AllocCoTaskMem(data.Length);
+        Marshal.Copy(data, 0, p, data.Length);
+        int w = 0;
+        bool res = WritePrinter(h, p, data.Length, out w);
+        EndPagePrinter(h);
+        EndDocPrinter(h);
+        ClosePrinter(h);
+        Marshal.FreeCoTaskMem(p);
+        return res ? "OK" : "WritePrinter Failed: " + Marshal.GetLastWin32Error();
     }
 }
 "@
 
 Add-Type -TypeDefinition $rawCode -ErrorAction SilentlyContinue
 Log "Spooling $($finalBytes.Length) bytes to $printer"
-[RawPrinter]::Send($printer, $finalBytes)
-Log "Done."
+$res = [RawPrinter]::Send($printer, $finalBytes)
+Log "Result: $res"
