@@ -11,7 +11,10 @@ try {
 }
 
 function Logo([string]$path) {
-    if (-not (Test-Path $path)) { return [byte[]]@() }
+    if (-not (Test-Path $path)) { 
+        Log "LOGO NOT FOUND: $path"
+        return [byte[]](0x0A, 0x1B, 0x61, 0x01) + [System.Text.Encoding]::ASCII.GetBytes("--- LOGO FILE NOT FOUND ---`n")
+    }
     try {
         Add-Type -AssemblyName System.Drawing
         $img = [System.Drawing.Image]::FromFile($path)

@@ -198,6 +198,8 @@ export async function printReceipt(tx, settings = {}, printerName = null, logoUr
     return { success: true, jobId: data.jobId, printer: data.printer };
 
   } catch (err) {
+    console.error('[PRINT] → Connection failed:', err);
+    alert('Print Server not reachable! Ensure "npm run dev" is running on your printing computer.');
     if (err.name === 'TimeoutError' || err.name === 'AbortError') {
       return { success: false, error: 'Print server timeout' };
     }
