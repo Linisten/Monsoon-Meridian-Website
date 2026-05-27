@@ -218,7 +218,7 @@ async function printReceipt(data, settings, printerName) {
 
   // Robust logo discovery
   const s = req.body.settings || {};
-  let logoPath = s.company_logo || 'src/assets/logo.jpg';
+  logoPath = s.company_logo || logoPath;
   const possiblePaths = [
     path.resolve(process.cwd(), logoPath),
     path.resolve(process.cwd(), 'src/assets/logo.jpg'),
