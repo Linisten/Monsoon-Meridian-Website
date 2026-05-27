@@ -46,9 +46,39 @@ const Settings = () => {
   const [loading, setLoading] = useState(true);
   const { alert } = useConfirm();
 
+  const [printers, setPrinters] = useState([]);
+  const [printServerOnline, setPrintServerOnline] = useState(false);
+
   useEffect(() => {
     loadSettings();
+    detectPrinters();
   }, []);
+
+  const detectPrinters = async () => {
+    try {
+      const res = await fetch('http://localhost:6789/health', { signal: AbortSignal.timeout(2000) });
+      if (res.ok) {
+        const data = await res.json();
+        const printersRes = await fetch('http://localhost:6789/printers', { signal: AbortSignal.timeout(2000) });
+        if (printersRes.ok) {
+          const printersData = await printersRes.json();
+          setPrinters(printersData.printers || []);
+        } else {
+          const list = (data.printers || []).map(p => {
+            const isDefault = p.includes('(default)');
+            const name = p.replace(' (default)', '').trim();
+            return { name, isDefault };
+          });
+          setPrinters(list);
+        }
+        setPrintServerOnline(true);
+      } else {
+        setPrintServerOnline(false);
+      }
+    } catch (e) {
+      setPrintServerOnline(false);
+    }
+  };
 
   const loadSettings = async () => {
     const { data, error } = await supabase.from('settings').select('*').limit(1).single();
@@ -140,6 +170,66 @@ const Settings = () => {
         <div className="settings-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
           <Field label="GST Registration Number" icon={Receipt} value={form.gst_no} onChange={v => handleChange('gst_no', v)} />
           <Field label="UPI Payment ID" icon={Smartphone} value={form.upi_id} onChange={v => handleChange('upi_id', v)} />
+        </div>
+      </div>
+
+      {/* Printer Settings */}
+      <div className="card" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid var(--c-border)', paddingBottom: '0.75rem' }}>
+          <h2 style={{ fontSize: '1.3rem', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <Printer size={20} style={{ color: 'var(--c-brand)' }} /> Printer Settings
+          </h2>
+          {printServerOnline ? (
+            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--c-success)', background: 'rgba(16,185,129,0.1)', padding: '0.25rem 0.75rem', borderRadius: '999px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--c-success)' }}></span> Online
+            </span>
+          ) : (
+            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--c-danger)', background: 'rgba(239,68,68,0.1)', padding: '0.25rem 0.75rem', borderRadius: '999px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--c-danger)' }}></span> Offline
+            </span>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          <label style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--c-text-secondary)' }}>
+            Thermal POS Printer Name
+          </label>
+          {printServerOnline ? (
+            <select
+              value={form.thermal_printer_name}
+              onChange={e => handleChange('thermal_printer_name', e.target.value)}
+              style={{ padding: '0.75rem', borderRadius: '10px', border: '1px solid var(--c-border)', background: 'var(--c-bg-card)', color: 'var(--c-text-primary)', fontWeight: 600, fontSize: '0.95rem', width: '100%' }}
+            >
+              <option value="">-- Select Printer (Auto-detect POS) --</option>
+              {printers.map(p => (
+                <option key={p.name} value={p.name}>
+                  {p.name} {p.isDefault ? ' (Default)' : ''}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <input
+                type="text"
+                value={form.thermal_printer_name}
+                onChange={e => handleChange('thermal_printer_name', e.target.value)}
+                placeholder="e.g. POS-80"
+                style={{ flex: 1 }}
+              />
+              <button 
+                onClick={detectPrinters}
+                className="btn-secondary" 
+                style={{ padding: '0.75rem 1rem', display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '8px', cursor: 'pointer' }}
+              >
+                Retry
+              </button>
+            </div>
+          )}
+          <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: 'var(--c-text-secondary)' }}>
+            {printServerOnline 
+              ? 'Select the thermal POS printer connected to your computer. Receipts and labels will be directed to this device.' 
+              : 'Local print server is offline. Make sure the local print server is running on this computer, then retry. You can also manually type your printer name above.'}
+          </p>
         </div>
       </div>
 

@@ -42,7 +42,6 @@ function buildReceipt(data, settings = {}) {
   const tel  = settings.phone   || '+918089867482';
 
   add2(
-    lf(),                        // space after logo
     b(0x1B, 0x45, 0x01), str(addr + '\n'), b(0x1B, 0x45, 0x00),
     str('Tel: ' + tel + '\n'),
     b(0x1B, 0x61, 0x00),
@@ -193,7 +192,7 @@ async function printLabels(labelImages, copies = 1, printerName) {
 }
 
 // ── Print via external PS1 script ──────────────────────────────────────────
-async function printReceipt(data, settings, printerName) {
+async function printReceipt(data, settings, printerName, logoBits) {
   // Find logo: check production path (dist) first, then development path (public), then source path
   const prodLogo = path.resolve(__dirname, '..', 'dist', 'logo.jpg');
   const devLogo  = path.resolve(__dirname, '..', 'public', 'logo.jpg');
@@ -217,7 +216,7 @@ async function printReceipt(data, settings, printerName) {
   const ps1File  = path.resolve(__dirname, 'pos_print.ps1');
 
   // Robust logo discovery
-  const s = req.body.settings || {};
+  const s = settings || {};
   logoPath = s.company_logo || logoPath;
   const possiblePaths = [
     path.resolve(process.cwd(), logoPath),
@@ -234,7 +233,7 @@ async function printReceipt(data, settings, printerName) {
     post:    post.toString('base64'),
     qr:      'https://instagram.com/monsoonmeridian',
     logo:    finalLogoPath,
-    logoBits:    req.body.logoBits || null, // Pre-processed bits from browser
+    logoBits:    logoBits || null, // Pre-processed bits from browser
     printer:     printerName,
   }));
 
@@ -253,22 +252,30 @@ async function printReceipt(data, settings, printerName) {
 }
 
 // ── Printers ────────────────────────────────────────────────────────────────
+// ── Printers ────────────────────────────────────────────────────────────────
 function getPrinters() {
   try {
-    const cmd = 'powershell -Command "Get-Printer | Select-Object Name, IsDefault | ConvertTo-Json -Compress"';
+    const cmd = 'powershell -Command "Get-CimInstance Win32_Printer | Select-Object Name, Default | ConvertTo-Json -Compress"';
     const out = execSync(cmd).toString().trim();
     if (!out) return [];
     const data = JSON.parse(out);
     const list = Array.isArray(data) ? data : [data];
     return list.map(p => ({
       name: p.Name,
-      isDefault: p.IsDefault || false
+      isDefault: p.Default || false
     }));
   } catch (e) {
-    // Fallback: try a simpler command if JSON fails
+    // Fallback: try using Get-Printer if CIM fails
     try {
-        const out = execSync('powershell -Command "Get-Printer | Name"').toString();
-        return out.split('\n').filter(n => n.trim()).map(n => ({ name: n.trim(), isDefault: false }));
+        const cmd = 'powershell -Command "Get-Printer | Select-Object Name | ConvertTo-Json -Compress"';
+        const out = execSync(cmd).toString().trim();
+        if (!out) return [];
+        const data = JSON.parse(out);
+        const list = Array.isArray(data) ? data : [data];
+        return list.map(p => ({
+          name: p.Name,
+          isDefault: false
+        }));
     } catch (e2) {
         return [];
     }
@@ -279,12 +286,12 @@ function getPrinters() {
 app.post('/print', async (req, res) => {
   console.log(`[HTTP] → Incoming print request for ID: ${req.body?.receipt?.id}`);
   try {
-    const { receipt, settings, printerName } = req.body;
+    const { receipt, settings, printerName, logoBits } = req.body;
     const printers = getPrinters();
-    const target = printerName || printers.find(p => p.isDefault)?.name || printers[0]?.name;
+    const target = printerName || printers.find(p => p.name && p.name.toUpperCase().includes('POS'))?.name || printers.find(p => p.isDefault)?.name || printers[0]?.name;
     if (!target) return res.status(500).json({ error: 'No printer found' });
     console.log(`[PRINT] → ${target}`);
-    await printReceipt(receipt, settings || {}, target);
+    await printReceipt(receipt, settings || {}, target, logoBits || null);
     res.json({ success: true, printer: target });
   } catch (err) {
     console.error('[PRINT ERR]', err);
@@ -295,17 +302,26 @@ app.post('/print', async (req, res) => {
 app.post('/print-labels', async (req, res) => {
   console.log(`[HTTP] → Incoming label print request (${req.body?.images?.length} rows)`);
   try {
-    const { images, copies } = req.body;
+    const { images, copies, printerName } = req.body;
     if (!images || !images.length) return res.status(400).json({ error: 'No images provided' });
 
     const printers = getPrinters();
-    const target = printers.find(p => p.isDefault)?.name || printers[0]?.name;
+    const target = printerName || printers.find(p => p.name && p.name.toUpperCase().includes('POS'))?.name || printers.find(p => p.isDefault)?.name || printers[0]?.name;
     if (!target) return res.status(500).json({ error: 'No printer found' });
 
     await printLabels(images, copies || 1, target);
     res.json({ success: true, printer: target });
   } catch (err) {
     console.error('[LABEL PRINT ERR]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/printers', (req, res) => {
+  try {
+    const printers = getPrinters();
+    res.json({ status: 'ok', printers });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });

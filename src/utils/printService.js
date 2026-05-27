@@ -158,8 +158,8 @@ export async function printReceipt(tx, settings = {}, printerName = null, logoUr
 
     const s = settings || {};
     
-    // Re-enable browser processing with embedded logo fallback
-    let logoBase64 = await getLogoBits(logoUrl, 200);
+    // Let the print server handle logo processing natively via PowerShell for better scaling and cropping
+    let logoBase64 = null;
     
     const payload = {
       receipt: {
@@ -182,7 +182,7 @@ export async function printReceipt(tx, settings = {}, printerName = null, logoUr
         gst_no:       s.gst_no || '',
       },
       printerName: printerName || s.thermal_printer_name || null,
-      logoBits: logoBase64
+      logoBits: null
     };
 
     const res = await fetch(`${PRINT_SERVER}/print`, {
@@ -214,13 +214,14 @@ export async function printReceipt(tx, settings = {}, printerName = null, logoUr
  * Send label images to the local server for batch printing.
  * @param {string[]} images - Array of Base64 image strings (each representing a row of labels)
  * @param {number} [copies=1] - Number of times to print the entire batch
+ * @param {string} [printerName=null] - Optional target printer name override
  */
-export async function printLabels(images, copies = 1) {
+export async function printLabels(images, copies = 1, printerName = null) {
   try {
     const res = await fetch(`${PRINT_SERVER}/print-labels`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ images, copies }),
+      body:    JSON.stringify({ images, copies, printerName }),
       signal:  AbortSignal.timeout(15000),
     });
 

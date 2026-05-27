@@ -6,6 +6,7 @@ import {
   Type, Move, Maximize2, Sparkles, RotateCw
 } from 'lucide-react';
 import { printLabels, checkPrintServer } from '../utils/printService';
+import { supabase } from '../config/supabaseClient';
 
 const BarcodeGenerator = () => {
   const [barcodeValue, setBarcodeValue] = useState('1234567890');
@@ -14,6 +15,21 @@ const BarcodeGenerator = () => {
   const [copies, setCopies] = useState(1);
   const [isPrinting, setIsPrinting] = useState(false);
   const [serverStatus, setServerStatus] = useState({ online: false, checking: true });
+  const [thermalPrinterName, setThermalPrinterName] = useState('');
+
+  useEffect(() => {
+    const fetchPrinterName = async () => {
+      try {
+        const { data } = await supabase.from('settings').select('thermal_printer_name').limit(1).single();
+        if (data && data.thermal_printer_name) {
+          setThermalPrinterName(data.thermal_printer_name);
+        }
+      } catch (err) {
+        console.error('Failed to load printer settings:', err);
+      }
+    };
+    fetchPrinterName();
+  }, []);
   
   // ─── MODE-SPECIFIC CONFIGURATION ──────────────────────────────────────
   const [labelMode, setLabelMode] = useState('standard'); 
@@ -26,6 +42,7 @@ const BarcodeGenerator = () => {
   const [standardLpr, setStandardLpr] = useState(() => parseInt(localStorage.getItem('mm_standard_lpr')) || 2);
   const [standardBarcodeWidth, setStandardBarcodeWidth] = useState(() => parseFloat(localStorage.getItem('mm_standard_bc_w')) || 1.0);
   const [standardBarcodeHeight, setStandardBarcodeHeight] = useState(() => parseInt(localStorage.getItem('mm_standard_bc_h')) || 30);
+  const [standardBarcodeFontSize, setStandardBarcodeFontSize] = useState(() => parseInt(localStorage.getItem('mm_standard_bc_font_s')) || 10);
   const [standardNameSize, setStandardNameSize] = useState(() => parseInt(localStorage.getItem('mm_standard_name_s')) || 10);
   const [standardPriceSize, setStandardPriceSize] = useState(() => parseInt(localStorage.getItem('mm_standard_price_s')) || 12);
   const [standardScale, setStandardScale] = useState(() => parseFloat(localStorage.getItem('mm_standard_scale')) || 1.0);
@@ -155,13 +172,14 @@ const BarcodeGenerator = () => {
     localStorage.setItem('mm_standard_lpr', standardLpr);
     localStorage.setItem('mm_standard_bc_w', standardBarcodeWidth);
     localStorage.setItem('mm_standard_bc_h', standardBarcodeHeight);
+    localStorage.setItem('mm_standard_bc_font_s', standardBarcodeFontSize);
     localStorage.setItem('mm_standard_name_s', standardNameSize);
     localStorage.setItem('mm_standard_price_s', standardPriceSize);
     localStorage.setItem('mm_standard_scale', standardScale);
     localStorage.setItem('mm_standard_gap', standardGap);
   }, [designerFields, designerHeight, designerWidth, designerLpr, designerRotation, designerDpi, designerOffset, designerA4, designerBgImage, designerBgSettings,
       advancedFields, advancedHeight, advancedWidth, advancedLpr, advancedRotation, advancedDpi, advancedOffset, advancedA4, advancedBgImage, advancedBgSettings,
-      standardWidth, standardHeight, standardLpr, standardBarcodeWidth, standardBarcodeHeight, standardNameSize, standardPriceSize, standardScale, standardGap]);
+      standardWidth, standardHeight, standardLpr, standardBarcodeWidth, standardBarcodeHeight, standardBarcodeFontSize, standardNameSize, standardPriceSize, standardScale, standardGap]);
 
   useEffect(() => {
     const checkStatus = async () => {
@@ -511,7 +529,7 @@ const BarcodeGenerator = () => {
 
       if (printTarget === 'pos') {
         const numRows = Math.ceil(copies / activeLpr);
-        const result = await printLabels([imageData], numRows);
+        const result = await printLabels([imageData], numRows, thermalPrinterName || null);
         if (!result.success) alert('Print server error: ' + result.error);
       } else {
         // A4 Printing via Browser
@@ -966,6 +984,14 @@ const BarcodeGenerator = () => {
                       onChange={e => setStandardBarcodeHeight(parseInt(e.target.value) || 30)} 
                     />
                   </div>
+                  <div className="input-group">
+                    <label>Barcode Text Size</label>
+                    <input 
+                      type="number" min="4" max="50"
+                      value={standardBarcodeFontSize} 
+                      onChange={e => setStandardBarcodeFontSize(parseInt(e.target.value) || 10)} 
+                    />
+                  </div>
                 </div>
               </div>
             ) : (
@@ -1415,7 +1441,7 @@ const BarcodeGenerator = () => {
                               value={barcodeValue || 'VOID'} 
                               width={1.0} 
                               height={standardBarcodeHeight * (mmToPx / 4.4)} 
-                              fontSize={10 * (mmToPx / 4.4)} 
+                              fontSize={standardBarcodeFontSize * (mmToPx / 4.4)} 
                               margin={0} 
                             />
                           </div>
@@ -1530,7 +1556,7 @@ const BarcodeGenerator = () => {
                           {labelMode === 'standard' ? (
                             <div className="printable-sticker" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between', padding: '6px', height: '100%' }}>
                               <div style={{ fontSize: `${standardNameSize * standardScale}px`, fontWeight: 800, color: '#1e293b', textAlign: 'center' }}>{formatItemName(productName.toUpperCase())}</div>
-                              <div style={{ transform: `scale(${standardBarcodeWidth * standardScale})` }}><Barcode value={barcodeValue || 'VOID'} width={1.0} height={standardBarcodeHeight * standardScale} fontSize={10} margin={0} /></div>
+                              <div style={{ transform: `scale(${standardBarcodeWidth * standardScale})` }}><Barcode value={barcodeValue || 'VOID'} width={1.0} height={standardBarcodeHeight * standardScale} fontSize={standardBarcodeFontSize} margin={0} /></div>
                               <div style={{ fontSize: `${standardPriceSize * standardScale}px`, fontWeight: 900, color: '#1e293b' }}>Rs {price}</div>
                             </div>
                           ) : (
@@ -1615,7 +1641,7 @@ const BarcodeGenerator = () => {
                           {labelMode === 'standard' ? (
                             <div className="printable-sticker" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', padding: '6px', height: '100%', gap: `${standardGap * standardScale}px` }}>
                               <div style={{ fontSize: `${(standardNameSize * standardScale) * (mmToPx / 4.4)}px`, fontWeight: 800, color: '#1e293b', textAlign: 'center' }}>{formatItemName(productName.toUpperCase())}</div>
-                              <div style={{ transform: `scale(${standardBarcodeWidth * standardScale * (mmToPx / 4.4)})`, transformOrigin: 'top center' }}><Barcode value={barcodeValue || 'VOID'} width={1.0} height={standardBarcodeHeight * (mmToPx / 4.4)} fontSize={10} margin={0} /></div>
+                              <div style={{ transform: `scale(${standardBarcodeWidth * standardScale * (mmToPx / 4.4)})`, transformOrigin: 'top center' }}><Barcode value={barcodeValue || 'VOID'} width={1.0} height={standardBarcodeHeight * (mmToPx / 4.4)} fontSize={standardBarcodeFontSize} margin={0} /></div>
                               <div style={{ fontSize: `${(standardPriceSize * standardScale) * (mmToPx / 4.4)}px`, fontWeight: 900, color: '#1e293b' }}>Rs {price}</div>
                             </div>
                           ) : (
