@@ -8,7 +8,7 @@ import {
   Bell, Info, ArrowUpCircle
 } from 'lucide-react';
 import { supabase } from '../config/supabaseClient';
-
+import { fetchAllRecords } from '../utils/transactionUtils';
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -32,10 +32,13 @@ const Dashboard = () => {
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
     
     // 1. Fetch This Month's Sales with Items
-    const { data: salesData } = await supabase
-      .from('sales')
-      .select('total_amount, items_json, discount_amount')
-      .gte('created_at', startOfMonth);
+    const salesData = await fetchAllRecords(
+      'sales',
+      'created_at',
+      false,
+      'total_amount, items_json, discount_amount',
+      q => q.gte('created_at', startOfMonth)
+    );
     
     let totalSales = 0;
     let totalProfit = 0;
@@ -58,10 +61,13 @@ const Dashboard = () => {
     });
     
     // 2. Fetch This Month's Purchases (for display only)
-    const { data: purchases } = await supabase
-      .from('purchases')
-      .select('total_amount')
-      .gte('created_at', startOfMonth);
+    const purchases = await fetchAllRecords(
+      'purchases',
+      'created_at',
+      false,
+      'total_amount',
+      q => q.gte('created_at', startOfMonth)
+    );
     const totalPurchases = (purchases || []).reduce((acc, curr) => acc + (curr.total_amount || 0), 0);
 
     // 3. Fetch All Items for Stock Value

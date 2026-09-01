@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Printer, Download, Filter, TrendingUp, ShoppingCart, Package, DollarSign, X } from 'lucide-react';
 import { supabase } from '../config/supabaseClient';
 import { useConfirm } from '../context/ConfirmContext';
+import { fetchAllRecords } from '../utils/transactionUtils';
 
 const Reports = () => {
   const [reportType, setReportType] = useState('sales');
@@ -26,14 +27,14 @@ const Reports = () => {
 
   const fetchAll = async () => {
     setLoading(true);
-    const [s, p, i, t] = await Promise.all([
-      supabase.from('sales').select('*').order('created_at', { ascending: false }),
-      supabase.from('purchases').select('*').order('created_at', { ascending: false }),
+    const [salesRows, purchaseRows, i, t] = await Promise.all([
+      fetchAllRecords('sales', 'created_at', false),
+      fetchAllRecords('purchases', 'created_at', false),
       supabase.from('items').select('*').order('name'),
       supabase.from('tax').select('rate_percent').limit(1).single(),
     ]);
-    if (!s.error) setSalesData(s.data || []);
-    if (!p.error) setPurchaseData(p.data || []);
+    setSalesData(salesRows || []);
+    setPurchaseData(purchaseRows || []);
     if (!i.error) setItemsData(i.data || []);
     if (!t.error && t.data) setTaxRate(t.data.rate_percent || 5);
     setLoading(false);
