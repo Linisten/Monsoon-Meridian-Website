@@ -23,6 +23,58 @@ const Reports = () => {
     return name.substring(0, max - 10) + "..." + name.slice(-7);
   };
 
+  const renderPaymentBadge = (method) => {
+    if (!method) method = 'CASH';
+
+    if (method.includes('CASH/GPAY') || method.includes('SPLIT')) {
+      const cashMatch = method.match(/Cash:\s*₹?([0-9.]+)/i);
+      const gpayMatch = method.match(/GPay:\s*₹?([0-9.]+)/i);
+      const cashVal = cashMatch ? cashMatch[1] : null;
+      const gpayVal = gpayMatch ? gpayMatch[1] : null;
+
+      return (
+        <span style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '6px',
+          padding: '0.25rem 0.65rem',
+          borderRadius: 999,
+          fontSize: '0.78rem',
+          fontWeight: 700,
+          background: 'linear-gradient(135deg, #ecfdf5 0%, #eef2ff 100%)',
+          border: '1px solid #c7d2fe',
+          boxShadow: '0 1px 2px rgba(0,0,0,0.04)'
+        }}>
+          <span style={{ color: '#166534', fontWeight: 800 }}>💵 Cash ₹{cashVal || '0'}</span>
+          <span style={{ color: '#94a3b8', fontWeight: 600 }}>•</span>
+          <span style={{ color: '#4338ca', fontWeight: 800 }}>📱 GPay ₹{gpayVal || '0'}</span>
+        </span>
+      );
+    }
+
+    if (method === 'CASH') {
+      return (
+        <span style={{ padding: '0.2rem 0.6rem', borderRadius: 999, fontSize: '0.8rem', fontWeight: 700, background: '#dcfce7', color: '#166534' }}>
+          CASH
+        </span>
+      );
+    }
+
+    if (method.includes('CARD')) {
+      return (
+        <span style={{ padding: '0.2rem 0.6rem', borderRadius: 999, fontSize: '0.8rem', fontWeight: 700, background: '#dbeafe', color: '#1e40af' }}>
+          CARD
+        </span>
+      );
+    }
+
+    return (
+      <span style={{ padding: '0.2rem 0.6rem', borderRadius: 999, fontSize: '0.8rem', fontWeight: 700, background: '#ede9fe', color: '#5b21b6' }}>
+        {method}
+      </span>
+    );
+  };
+
   useEffect(() => { fetchAll(); }, []);
 
   const fetchAll = async () => {
@@ -410,9 +462,7 @@ const Reports = () => {
                     <td style={{ padding: '0.75rem 1rem', fontFamily: 'monospace', fontSize: '0.8rem' }}>{row.id}</td>
                     <td style={{ padding: '0.75rem 1rem' }}>{new Date(row.created_at).toLocaleString()}</td>
                     <td style={{ padding: '0.75rem 1rem' }}>
-                      <span style={{ padding: '0.2rem 0.6rem', borderRadius: 999, fontSize: '0.8rem', fontWeight: 700, background: row.payment_method === 'CASH' ? '#dcfce7' : row.payment_method?.includes('CARD') ? '#dbeafe' : '#ede9fe', color: row.payment_method === 'CASH' ? '#166534' : row.payment_method?.includes('CARD') ? '#1e40af' : '#5b21b6' }}>
-                        {row.payment_method || 'CASH'}
-                      </span>
+                      {renderPaymentBadge(row.payment_method)}
                     </td>
                     <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: 700 }}>₹{(row.total_amount || 0).toFixed(2)}</td>
                   </tr>
@@ -583,7 +633,11 @@ const Reports = () => {
                   </div>
                   <div style={{ color: 'var(--c-text-secondary)', fontSize: '0.9rem', marginTop: 2 }}>
                     <b>{isSale ? 'Customer:' : 'Supplier:'}</b> {isSale ? (data.customer_name || 'Walk-in Customer') : (data.supplier || '—')}
-                    {isSale && <span style={{ marginLeft: 16 }}><b>Payment:</b> {data.payment_method}</span>}
+                    {isSale && (
+                      <span style={{ marginLeft: 16, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        <b>Payment:</b> {renderPaymentBadge(data.payment_method)}
+                      </span>
+                    )}
                     {!isSale && <span style={{ marginLeft: 16 }}><b>Ref No:</b> {data.reference_no || 'NA'} &nbsp;|&nbsp; <b>Mode:</b> {data.payment_mode || 'Cash'}</span>}
                   </div>
                 </div>

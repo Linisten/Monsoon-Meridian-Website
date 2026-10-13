@@ -198,6 +198,12 @@ const Sales = () => {
   const [categories,       setCategories]       = useState(['ALL']);
   const [stockWarning,     setStockWarning]     = useState(null);
 
+  // Split payment mode & values
+  const [paymentMode,      setPaymentMode]      = useState('CASH'); // 'CASH' | 'SPLIT'
+  const [splitCash,        setSplitCash]        = useState('');
+  const [splitGpay,        setSplitGpay]        = useState('');
+  const [showSplitUpi,     setShowSplitUpi]     = useState(false);
+
   const [sysSettings,      setSysSettings]      = useState({});
 
   useEffect(() => {
@@ -222,6 +228,9 @@ const Sales = () => {
     setTaxPercent(0);
     setDiscount('');
     setSelectedCustomer('Walk-in Customer');
+    setPaymentMode('CASH');
+    setSplitCash('');
+    setSplitGpay('');
   };
   const [isProcessing,     setIsProcessing]     = useState(false);
   const [isPrinting,       setIsPrinting]       = useState(false);
@@ -351,6 +360,9 @@ const Sales = () => {
     setPaymentOverlay('success');
     await new Promise(r => setTimeout(r, 800));
     setPaymentOverlay(null);
+    setPaymentMode('CASH');
+    setSplitCash('');
+    setSplitGpay('');
     setLastTransaction({ ...payload, id: data?.[0]?.id || `INV-${Date.now()}`, date: new Date().toLocaleString() });
     setShowReceipt(true);
   };
@@ -403,8 +415,95 @@ const Sales = () => {
   // ── CASH ─────────────────────────────────────────────────────────────────
   const handleCash = () => {
     if (!cart.length) return alert('Cart is empty!', 'error');
+    if (paymentMode === 'SPLIT') {
+      setPaymentMode('CASH');
+      return;
+    }
     persistSale('CASH');
   };
+
+  // ── CASH / GPAY SPLIT ────────────────────────────────────────────────────
+  const handleSelectSplit = () => {
+    if (!cart.length) return alert('Cart is empty!', 'error');
+    setPaymentMode('SPLIT');
+    if (!splitCash && !splitGpay) {
+      setSplitCash('');
+      setSplitGpay(netAmount.toString());
+    }
+  };
+
+  const handleSplitCashChange = (e) => {
+    const val = e.target.value;
+    if (val === '') {
+      setSplitCash('');
+      setSplitGpay(netAmount.toString());
+      return;
+    }
+    const num = parseFloat(val);
+    if (isNaN(num)) {
+      setSplitCash('');
+      setSplitGpay(netAmount.toString());
+      return;
+    }
+    const safeCash = Math.max(0, Math.min(netAmount, num));
+    const safeGpay = Math.max(0, Math.round((netAmount - safeCash) * 100) / 100);
+    setSplitCash(val);
+    setSplitGpay(safeGpay.toString());
+  };
+
+  const handleSplitGpayChange = (e) => {
+    const val = e.target.value;
+    if (val === '') {
+      setSplitGpay('');
+      setSplitCash(netAmount.toString());
+      return;
+    }
+    const num = parseFloat(val);
+    if (isNaN(num)) {
+      setSplitGpay('');
+      setSplitCash(netAmount.toString());
+      return;
+    }
+    const safeGpay = Math.max(0, Math.min(netAmount, num));
+    const safeCash = Math.max(0, Math.round((netAmount - safeGpay) * 100) / 100);
+    setSplitGpay(val);
+    setSplitCash(safeCash.toString());
+  };
+
+  const handlePresetSplit = (cashPortion) => {
+    const safeCash = Math.max(0, Math.min(netAmount, Math.round(cashPortion)));
+    const safeGpay = Math.max(0, netAmount - safeCash);
+    setSplitCash(safeCash.toString());
+    setSplitGpay(safeGpay.toString());
+  };
+
+  const handleConfirmSplitSale = () => {
+    if (!cart.length) return alert('Cart is empty!', 'error');
+    const cashVal = parseFloat(splitCash) || 0;
+    const gpayVal = parseFloat(splitGpay) || 0;
+    const sum = Math.round((cashVal + gpayVal) * 100) / 100;
+
+    if (Math.abs(sum - netAmount) > 0.5) {
+      return alert(`Split total (₹${sum}) must equal the total bill of ₹${netAmount}!`, 'error');
+    }
+
+    const method = `CASH/GPAY (Cash: ₹${cashVal}, GPay: ₹${gpayVal})`;
+    persistSale(method);
+  };
+
+  // Sync split amounts when netAmount changes while in SPLIT mode
+  useEffect(() => {
+    if (paymentMode === 'SPLIT') {
+      const cashNum = parseFloat(splitCash);
+      if (!isNaN(cashNum)) {
+        const safeCash = Math.max(0, Math.min(netAmount, cashNum));
+        const safeGpay = Math.max(0, Math.round((netAmount - safeCash) * 100) / 100);
+        setSplitGpay(safeGpay.toString());
+      } else {
+        setSplitGpay(netAmount.toString());
+      }
+    }
+  }, [netAmount, paymentMode]);
 
   // ── UPI / GPay (Manual QR) ───────────────────────────────────────────────
   const handleGpay = () => {
@@ -415,19 +514,6 @@ const Sales = () => {
   const confirmUpi = () => {
     setShowUpi(false);
     persistSale('UPI/GPAY_MANUAL');
-  };
-
-  // ── Manual Card ──────────────────────────────────────────────────────────
-  const handleCard = async () => {
-    if (!cart.length) return alert('Cart is empty!', 'error');
-    const isConfirmed = await confirm({
-      title: 'Card Payment',
-      message: 'Confirm that the card payment was successful on the external machine?',
-      confirmText: 'Yes, Payment Received',
-      cancelText: 'No'
-    });
-    if (!isConfirmed) return;
-    persistSale('CARD_MANUAL');
   };
 
   // ── Thermal Direct Print (via local Node.js print server) ───────────────
@@ -662,28 +748,211 @@ const Sales = () => {
 
         {/* Actual Payment Buttons */}
         <div className="card payment-grid" style={{ padding: '1.25rem' }}>
-          <button onClick={handleCash} disabled={isProcessing} className="btn-primary" style={{ flex: 1, justifyContent: 'center', gap: '0.5rem', display: 'flex', alignItems: 'center', backgroundColor: isProcessing ? '#94a3b8' : 'var(--c-success)' }}>
+          <button 
+            type="button"
+            onClick={handleCash} 
+            disabled={isProcessing} 
+            className="btn-primary" 
+            style={{ 
+              flex: 1, 
+              justifyContent: 'center', 
+              gap: '0.5rem', 
+              display: 'flex', 
+              alignItems: 'center', 
+              backgroundColor: isProcessing ? '#94a3b8' : 'var(--c-success)',
+              border: paymentMode === 'CASH' ? '2px solid #15803d' : 'none',
+              boxShadow: paymentMode === 'CASH' ? '0 0 0 3px rgba(34,197,94,0.3)' : 'none',
+              fontWeight: 800
+            }}
+          >
             <Banknote size={22} /> {isProcessing ? 'Saving...' : 'Cash'}
           </button>
-          <button onClick={handleCard} disabled={isProcessing} className="btn-primary" style={{ flex: 1, justifyContent: 'center', gap: '0.5rem', display: 'flex', alignItems: 'center', backgroundColor: isProcessing ? '#94a3b8' : '#2563eb' }}>
-            <CreditCard size={22} /> {isProcessing ? 'Saving...' : 'Card'}
+          <button 
+            type="button"
+            onClick={handleSelectSplit} 
+            disabled={isProcessing} 
+            className="btn-primary" 
+            style={{ 
+              flex: 1, 
+              justifyContent: 'center', 
+              gap: '0.35rem', 
+              display: 'flex', 
+              alignItems: 'center', 
+              backgroundColor: isProcessing ? '#94a3b8' : (paymentMode === 'SPLIT' ? '#1d4ed8' : '#2563eb'),
+              border: paymentMode === 'SPLIT' ? '2px solid #60a5fa' : 'none',
+              boxShadow: paymentMode === 'SPLIT' ? '0 0 0 3px rgba(37,99,235,0.35)' : 'none',
+              fontWeight: 800
+            }}
+          >
+            <Banknote size={17} />/<Smartphone size={17} /> {isProcessing ? 'Saving...' : 'Cash/GPay'}
           </button>
-          <button onClick={handleGpay} disabled={isProcessing} className="btn-primary" style={{ flex: 1, justifyContent: 'center', gap: '0.5rem', display: 'flex', alignItems: 'center', backgroundColor: isProcessing ? '#94a3b8' : '#6366f1' }}>
+          <button 
+            type="button"
+            onClick={handleGpay} 
+            disabled={isProcessing} 
+            className="btn-primary" 
+            style={{ 
+              flex: 1, 
+              justifyContent: 'center', 
+              gap: '0.5rem', 
+              display: 'flex', 
+              alignItems: 'center', 
+              backgroundColor: isProcessing ? '#94a3b8' : '#6366f1',
+              fontWeight: 800
+            }}
+          >
             <Smartphone size={22} /> {isProcessing ? 'Saving...' : 'GPay/UPI'}
           </button>
         </div>
 
-        {/* Change calculator */}
-        <div className="card calculator-card" style={{ padding: '1.25rem', display: 'flex', gap: '1.5rem', alignItems: 'center' }}>
-          <div style={{ flex: 1 }}>
-            <label style={{ fontSize: '0.75rem', display: 'block', marginBottom: '0.25rem', fontWeight: 700 }}>Cash Received</label>
-            <input type="number" value={receivedAmount} onChange={e => setReceivedAmount(e.target.value)} placeholder="0.00" style={{ fontSize: '1.3rem', fontWeight: 700 }} />
+        {/* Change calculator / Custom Cash+GPay Split Payment Section */}
+        {paymentMode === 'SPLIT' ? (
+          <div className="card" style={{ 
+            padding: '1.25rem', 
+            display: 'flex', 
+            flexDirection: 'column', 
+            gap: '0.85rem',
+            border: '2px solid #3b82f6',
+            backgroundColor: '#f8fafc',
+            boxShadow: '0 4px 14px rgba(37,99,235,0.08)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ 
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  width: 22, height: 22, borderRadius: '50%', background: '#2563eb', color: 'white', fontSize: '0.75rem', fontWeight: 900 
+                }}>₹</span>
+                <span style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--c-text-primary)' }}>
+                  Custom Split (Bill: ₹{netAmount})
+                </span>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setPaymentMode('CASH')}
+                style={{ fontSize: '0.75rem', color: 'var(--c-text-secondary)', background: 'transparent', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
+              >
+                Cancel Split
+              </button>
+            </div>
+
+            {/* Two-way Inputs for Cash & GPay */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+              <div style={{ 
+                background: 'white', padding: '0.65rem 0.85rem', borderRadius: 8, border: '1.5px solid #22c55e',
+                display: 'flex', flexDirection: 'column', gap: '0.2rem' 
+              }}>
+                <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#166534', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <Banknote size={14} /> Cash (₹)
+                </label>
+                <input 
+                  type="number"
+                  value={splitCash}
+                  onChange={handleSplitCashChange}
+                  placeholder="0.00"
+                  min="0"
+                  max={netAmount}
+                  autoFocus
+                  style={{ 
+                    fontSize: '1.25rem', fontWeight: 800, width: '100%', 
+                    color: '#166534', border: 'none', outline: 'none', background: 'transparent', padding: 0
+                  }}
+                />
+              </div>
+
+              <div style={{ 
+                background: 'white', padding: '0.65rem 0.85rem', borderRadius: 8, border: '1.5px solid #6366f1',
+                display: 'flex', flexDirection: 'column', gap: '0.2rem' 
+              }}>
+                <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#4338ca', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <Smartphone size={14} /> GPay (₹)
+                </label>
+                <input 
+                  type="number"
+                  value={splitGpay}
+                  onChange={handleSplitGpayChange}
+                  placeholder="0.00"
+                  min="0"
+                  max={netAmount}
+                  style={{ 
+                    fontSize: '1.25rem', fontWeight: 800, width: '100%', 
+                    color: '#4338ca', border: 'none', outline: 'none', background: 'transparent', padding: 0
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Quick split chips */}
+            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '0.72rem', color: 'var(--c-text-secondary)', fontWeight: 600 }}>Quick:</span>
+              <button 
+                type="button"
+                onClick={() => handlePresetSplit(Math.round(netAmount / 2))}
+                style={{ padding: '2px 8px', fontSize: '0.75rem', borderRadius: 4, border: '1px solid var(--c-border)', background: 'white', cursor: 'pointer', fontWeight: 600 }}
+              >
+                50 / 50
+              </button>
+              <button 
+                type="button"
+                onClick={() => handlePresetSplit(0)}
+                style={{ padding: '2px 8px', fontSize: '0.75rem', borderRadius: 4, border: '1px solid var(--c-border)', background: 'white', cursor: 'pointer', fontWeight: 600 }}
+              >
+                All GPay
+              </button>
+              <button 
+                type="button"
+                onClick={() => handlePresetSplit(netAmount)}
+                style={{ padding: '2px 8px', fontSize: '0.75rem', borderRadius: 4, border: '1px solid var(--c-border)', background: 'white', cursor: 'pointer', fontWeight: 600 }}
+              >
+                All Cash
+              </button>
+            </div>
+
+            {/* Action buttons */}
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              {Number(splitGpay) > 0 && (
+                <button 
+                  type="button"
+                  onClick={() => setShowSplitUpi(true)}
+                  className="btn-secondary"
+                  style={{ padding: '0.65rem 0.85rem', fontSize: '0.85rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6, color: '#4338ca', borderColor: '#c7d2fe', background: 'white' }}
+                  title="Show UPI QR Code for GPay portion"
+                >
+                  <Smartphone size={16} /> QR (₹{splitGpay})
+                </button>
+              )}
+              <button 
+                type="button"
+                onClick={handleConfirmSplitSale}
+                disabled={isProcessing || !cart.length}
+                className="btn-primary"
+                style={{ 
+                  flex: 1, 
+                  justifyContent: 'center', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '0.5rem',
+                  padding: '0.65rem 1rem',
+                  fontSize: '0.9rem',
+                  fontWeight: 800,
+                  backgroundColor: isProcessing ? '#94a3b8' : '#2563eb' 
+                }}
+              >
+                <CheckCircle size={18} /> {isProcessing ? 'Saving...' : `Confirm Sale (₹${Number(splitCash) || 0} + ₹${Number(splitGpay) || 0})`}
+              </button>
+            </div>
           </div>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: '0.8rem', color: 'var(--c-text-secondary)', fontWeight: 700 }}>CHANGE</div>
-            <div style={{ fontSize: '1.8rem', fontWeight: 800, color: change >= 0 ? 'var(--c-success)' : 'var(--c-danger)' }}>₹{change >= 0 ? change.toFixed(2) : '0.00'}</div>
+        ) : (
+          <div className="card calculator-card" style={{ padding: '1.25rem', display: 'flex', gap: '1.5rem', alignItems: 'center' }}>
+            <div style={{ flex: 1 }}>
+              <label style={{ fontSize: '0.75rem', display: 'block', marginBottom: '0.25rem', fontWeight: 700 }}>Cash Received</label>
+              <input type="number" value={receivedAmount} onChange={e => setReceivedAmount(e.target.value)} placeholder="0.00" style={{ fontSize: '1.3rem', fontWeight: 700 }} />
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: '0.8rem', color: 'var(--c-text-secondary)', fontWeight: 700 }}>CHANGE</div>
+              <div style={{ fontSize: '1.8rem', fontWeight: 800, color: change >= 0 ? 'var(--c-success)' : 'var(--c-danger)' }}>₹{change >= 0 ? change.toFixed(2) : '0.00'}</div>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Search bar */}
         <div style={{ position: 'relative' }}>
@@ -873,7 +1142,7 @@ const Sales = () => {
         </div>
       )}
 
-      {/* ─── OVERLAY: Premium UPI Payment Modal ──────────────────────────── */}
+      {/* ─── OVERLAY: Premium UPI Payment Modal (Full) ─────────────────── */}
       {showUpi && (
         <UpiPaymentModal
           upiId={sysSettings?.upi_id || import.meta.env.VITE_UPI_ID || 'monsoonmeridian@upi'}
@@ -881,6 +1150,20 @@ const Sales = () => {
           amount={netAmount}
           onConfirm={confirmUpi}
           onCancel={() => setShowUpi(false)}
+        />
+      )}
+
+      {/* ─── OVERLAY: Split UPI Payment Modal (for GPay portion) ─────────── */}
+      {showSplitUpi && (
+        <UpiPaymentModal
+          upiId={sysSettings?.upi_id || import.meta.env.VITE_UPI_ID || 'monsoonmeridian@upi'}
+          payeeName={sysSettings?.company_name || import.meta.env.VITE_UPI_PAYEE_NAME || 'Monsoon Meridian'}
+          amount={parseFloat(splitGpay) || 0}
+          onConfirm={() => {
+            setShowSplitUpi(false);
+            handleConfirmSplitSale();
+          }}
+          onCancel={() => setShowSplitUpi(false)}
         />
       )}
 
@@ -896,7 +1179,7 @@ const Sales = () => {
                 <Printer size={24} /> {isPrinting ? 'Printing...' : 'Print Receipt'}
               </button>
 
-              <button onClick={() => { setShowReceipt(false); setCart([]); setReceivedAmount(''); setDiscount(''); }}
+              <button onClick={() => { setShowReceipt(false); setCart([]); setReceivedAmount(''); setDiscount(''); setPaymentMode('CASH'); setSplitCash(''); setSplitGpay(''); }}
                 style={{ padding: '1.25rem 2rem', fontSize: '1.1rem', border: '2px solid rgba(255,255,255,0.35)', color: 'white', borderRadius: 8, fontWeight: 700, background: 'transparent', cursor: 'pointer' }}>
                 Close & New Sale
               </button>

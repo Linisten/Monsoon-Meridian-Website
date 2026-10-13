@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Bell, Search, X, AlertTriangle, Package, ExternalLink, Menu } from 'lucide-react';
+import { Bell, Search, X, AlertTriangle, Package, ExternalLink, Menu, Clock } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../../config/supabaseClient';
 
@@ -18,6 +18,7 @@ const Header = ({ onMenuClick }) => {
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [notifLoading, setNotifLoading] = useState(false);
+  const [notifFilter, setNotifFilter] = useState('ALL'); // ALL, EXPIRY, LOW_STOCK
   const notifRef = useRef(null);
 
   const getPageTitle = () => {
@@ -91,50 +92,101 @@ const Header = ({ onMenuClick }) => {
     return () => clearTimeout(t);
   }, [query, doSearch]);
 
-  /* ── Notifications: low-stock items ── */
+  /* ── Notifications: 1-month expiry & low-stock alerts ── */
   const fetchNotifications = useCallback(async () => {
     setNotifLoading(true);
     const now = new Date();
-    const tenDaysFromNow = new Date();
-    tenDaysFromNow.setDate(now.getDate() + 10);
-    const tenDaysStr = tenDaysFromNow.toISOString().split('T')[0];
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-    const { data } = await supabase
-      .from('items')
-      .select('id, name, code, stock_quantity, low_stock_alert, expiry_date')
-      .or(`stock_quantity.lte.low_stock_alert,expiry_date.lte.${tenDaysStr}`)
-      .limit(30);
+    // Calculate 1 month ahead threshold for expiry notifications
+    const oneMonthFromNow = new Date(today);
+    oneMonthFromNow.setMonth(oneMonthFromNow.getMonth() + 1);
+    const oneMonthStr = oneMonthFromNow.toISOString().split('T')[0];
 
-    const formattedNotifs = (data || []).map(item => {
-      const isLowStock = (item.stock_quantity || 0) <= (item.low_stock_alert || 5);
-      const isExpiring = item.expiry_date && new Date(item.expiry_date) <= tenDaysFromNow;
+    try {
+      const [expRes, lowRes] = await Promise.all([
+        supabase
+          .from('items')
+          .select('id, name, code, stock_quantity, low_stock_alert, expiry_date')
+          .not('expiry_date', 'is', null)
+          .neq('expiry_date', '')
+          .lte('expiry_date', oneMonthStr)
+          .order('expiry_date', { ascending: true }),
+        supabase
+          .from('items')
+          .select('id, name, code, stock_quantity, low_stock_alert, expiry_date')
+          .lte('stock_quantity', 5)
+          .order('stock_quantity', { ascending: true })
+          .limit(50)
+      ]);
 
-      if (isExpiring) {
+      const expItems = expRes.data || [];
+      const lowItems = lowRes.data || [];
+
+      // Process expiry notifications (ascending order of expiry date)
+      const expiryNotifs = expItems.map(item => {
+        const expDate = new Date(item.expiry_date + 'T00:00:00');
+        const diffDays = Math.ceil((expDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+        const isExpired = diffDays < 0;
+        const isToday = diffDays === 0;
+
+        let subText = '';
+        if (isExpired) {
+          subText = `Expired ${Math.abs(diffDays)}d ago (${item.expiry_date})`;
+        } else if (isToday) {
+          subText = `Expiring TODAY (${item.expiry_date})`;
+        } else {
+          subText = `Expiring in ${diffDays} day${diffDays === 1 ? '' : 's'} (${item.expiry_date})`;
+        }
+
         return {
           id: `${item.id}-exp`,
+          itemId: item.id,
           title: item.name,
-          sub: `Expiring on: ${item.expiry_date}`,
+          sub: subText,
           code: item.code,
-          type: 'expiry',
-          urgency: 'high'
+          expiry_date: item.expiry_date,
+          diffDays,
+          type: isExpired ? 'expired' : 'expiry',
+          urgency: isExpired ? 'critical' : (diffDays <= 7 ? 'high' : 'medium')
         };
-      }
-      if (isLowStock) {
-        return {
+      });
+
+      // Strict ascending sort by expiry date
+      expiryNotifs.sort((a, b) => {
+        const timeA = new Date(a.expiry_date).getTime();
+        const timeB = new Date(b.expiry_date).getTime();
+        return timeA - timeB;
+      });
+
+      // Process low-stock notifications
+      const lowNotifs = lowItems
+        .filter(item => (item.stock_quantity || 0) <= (item.low_stock_alert || 5))
+        .map(item => ({
           id: `${item.id}-qty`,
+          itemId: item.id,
           title: item.name,
-          sub: `Quantity Low: ${(item.stock_quantity || 0).toFixed(2)}`,
+          sub: `Stock Low: ${(item.stock_quantity || 0).toFixed(0)} units remaining`,
           code: item.code,
           type: 'low_stock',
-          urgency: 'medium'
-        };
-      }
-      return null;
-    }).filter(Boolean);
+          urgency: (item.stock_quantity || 0) <= 0 ? 'critical' : 'medium'
+        }));
 
-    setNotifications(formattedNotifs);
-    setNotifLoading(false);
+      // Combined list: Expiring items first (earliest expiry first), then low stock
+      setNotifications([...expiryNotifs, ...lowNotifs]);
+    } catch (err) {
+      console.error('Error fetching notifications:', err);
+    } finally {
+      setNotifLoading(false);
+    }
   }, []);
+
+  // Fetch notifications on mount and refresh periodically
+  useEffect(() => {
+    fetchNotifications();
+    const interval = setInterval(fetchNotifications, 120000);
+    return () => clearInterval(interval);
+  }, [fetchNotifications]);
 
   /* Close dropdowns on outside click */
   useEffect(() => {
@@ -358,7 +410,7 @@ const Header = ({ onMenuClick }) => {
             position: 'absolute',
             top: 'calc(100% + 6px)',
             right: 0,
-            width: '320px',
+            width: 'min(380px, calc(100vw - 32px))',
             background: 'white',
             border: '1px solid var(--c-border)',
             borderRadius: '0.75rem',
@@ -368,75 +420,168 @@ const Header = ({ onMenuClick }) => {
           }}>
             {/* Header */}
             <div style={{
-              padding: '0.85rem 1rem',
+              padding: '0.85rem 1rem 0.5rem',
               borderBottom: '1px solid var(--c-border)',
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
               background: 'var(--c-bg)',
             }}>
-              <span style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--c-text-primary)' }}>
-                Notifications
-              </span>
-              <button onClick={() => setNotifOpen(false)}
-                style={{ color: 'var(--c-text-secondary)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px', lineHeight: 0 }}>
-                <X size={14} />
-              </button>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                <span style={{ fontWeight: 800, fontSize: '0.92rem', color: 'var(--c-text-primary)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <span>Inventory Alerts</span>
+                  {notifications.length > 0 && (
+                    <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.45rem', borderRadius: '99px', background: '#fee2e2', color: '#b91c1c', fontWeight: 800 }}>
+                      {notifications.length}
+                    </span>
+                  )}
+                </span>
+                <button onClick={() => setNotifOpen(false)}
+                  style={{ color: 'var(--c-text-secondary)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px', lineHeight: 0 }}>
+                  <X size={15} />
+                </button>
+              </div>
+
+              {/* Tabs */}
+              <div style={{ display: 'flex', gap: '0.35rem', marginTop: '0.35rem' }}>
+                <button
+                  onClick={() => setNotifFilter('ALL')}
+                  style={{
+                    padding: '0.25rem 0.6rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 700,
+                    border: 'none', cursor: 'pointer',
+                    background: notifFilter === 'ALL' ? 'var(--c-text-primary)' : 'transparent',
+                    color: notifFilter === 'ALL' ? '#fff' : 'var(--c-text-secondary)',
+                  }}
+                >
+                  All ({notifications.length})
+                </button>
+                <button
+                  onClick={() => setNotifFilter('EXPIRY')}
+                  style={{
+                    padding: '0.25rem 0.6rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 700,
+                    border: 'none', cursor: 'pointer',
+                    background: notifFilter === 'EXPIRY' ? '#ea580c' : 'transparent',
+                    color: notifFilter === 'EXPIRY' ? '#fff' : '#ea580c',
+                  }}
+                >
+                  Expiring ({notifications.filter(n => n.type === 'expiry' || n.type === 'expired').length})
+                </button>
+                <button
+                  onClick={() => setNotifFilter('LOW_STOCK')}
+                  style={{
+                    padding: '0.25rem 0.6rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 700,
+                    border: 'none', cursor: 'pointer',
+                    background: notifFilter === 'LOW_STOCK' ? 'var(--c-olive)' : 'transparent',
+                    color: notifFilter === 'LOW_STOCK' ? '#fff' : 'var(--c-olive)',
+                  }}
+                >
+                  Low Stock ({notifications.filter(n => n.type === 'low_stock').length})
+                </button>
+              </div>
             </div>
 
             {/* Body */}
-            <div style={{ maxHeight: '360px', overflowY: 'auto' }}>
+            <div style={{ maxHeight: '380px', overflowY: 'auto' }}>
               {notifLoading && (
-                <div style={{ padding: '1.5rem', textAlign: 'center', fontSize: '0.82rem', color: 'var(--c-text-secondary)' }}>
-                  Loading…
+                <div style={{ padding: '2rem', textAlign: 'center', fontSize: '0.85rem', color: 'var(--c-text-secondary)' }}>
+                  Checking expiry dates and stock levels…
                 </div>
               )}
               {!notifLoading && notifications.length === 0 && (
-                <div style={{ padding: '1.5rem', textAlign: 'center', fontSize: '0.82rem', color: 'var(--c-text-secondary)' }}>
-                  ✅ Everything looks good!
+                <div style={{ padding: '2.5rem 1.5rem', textAlign: 'center', fontSize: '0.85rem', color: 'var(--c-text-secondary)' }}>
+                  <div style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>✅</div>
+                  <div style={{ fontWeight: 700, color: 'var(--c-text-primary)' }}>All items are in stock & fresh!</div>
+                  <div style={{ fontSize: '0.75rem', marginTop: '4px' }}>No products expiring within 1 month.</div>
                 </div>
               )}
-              {!notifLoading && notifications.length > 0 && (
-                <>
-                  <div style={{ padding: '0.5rem 1rem', fontSize: '0.7rem', fontWeight: 700, color: 'var(--c-wave)', textTransform: 'uppercase', letterSpacing: '0.07em', background: 'var(--c-bg)' }}>
-                    ⚠ Critical Alerts ({notifications.length})
-                  </div>
-                  {notifications.map((n, i) => (
+              {!notifLoading && notifications.length > 0 && (() => {
+                const displayed = notifications.filter(n => {
+                  if (notifFilter === 'EXPIRY') return n.type === 'expiry' || n.type === 'expired';
+                  if (notifFilter === 'LOW_STOCK') return n.type === 'low_stock';
+                  return true;
+                });
+
+                if (displayed.length === 0) {
+                  return (
+                    <div style={{ padding: '2rem', textAlign: 'center', fontSize: '0.82rem', color: 'var(--c-text-secondary)' }}>
+                      No alerts under this tab.
+                    </div>
+                  );
+                }
+
+                return displayed.map((n, i) => {
+                  const isExp = n.type === 'expiry' || n.type === 'expired';
+                  const isCritical = n.urgency === 'critical';
+                  const iconBg = n.type === 'expired' ? '#fee2e2' : (n.type === 'expiry' ? '#ffedd5' : '#f0fdf4');
+                  const iconColor = n.type === 'expired' ? '#dc2626' : (n.type === 'expiry' ? '#ea580c' : 'var(--c-olive)');
+
+                  return (
                     <button
                       key={n.id}
-                      onClick={() => { navigate('/stock'); setNotifOpen(false); }}
+                      onClick={() => {
+                        const targetFilter = n.type === 'expired' ? 'EXPIRED' : (n.type === 'expiry' ? 'EXPIRING' : 'LOW');
+                        navigate('/stock', { state: { filter: targetFilter, search: n.title } });
+                        setNotifOpen(false);
+                      }}
                       style={{
                         width: '100%', display: 'flex', alignItems: 'flex-start', gap: '0.75rem',
                         padding: '0.75rem 1rem', background: 'none', border: 'none', cursor: 'pointer',
-                        textAlign: 'left', borderBottom: i < notifications.length - 1 ? '1px solid var(--c-border)' : 'none',
-                        transition: 'background 0.1s',
+                        textAlign: 'left', borderBottom: i < displayed.length - 1 ? '1px solid var(--c-border)' : 'none',
+                        transition: 'background 0.15s',
                       }}
-                      onMouseEnter={e => e.currentTarget.style.background = '#fff5f5'}
+                      onMouseEnter={e => e.currentTarget.style.background = isCritical ? '#fff1f2' : '#f8fafc'}
                       onMouseLeave={e => e.currentTarget.style.background = 'none'}
                     >
                       <div style={{
                         width: '32px', height: '32px', borderRadius: '8px',
-                        background: n.type === 'expiry' ? '#fff1f2' : '#f0fdf4', 
+                        background: iconBg,
                         display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
                       }}>
-                        {n.type === 'expiry' ? <AlertTriangle size={16} color="var(--c-danger)" /> : <Package size={16} color="var(--c-olive)" />}
+                        {n.type === 'expired' ? (
+                          <AlertTriangle size={16} color={iconColor} />
+                        ) : n.type === 'expiry' ? (
+                          <Clock size={16} color={iconColor} />
+                        ) : (
+                          <Package size={16} color={iconColor} />
+                        )}
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--c-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {n.title}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+                          <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--c-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {n.title}
+                          </span>
+                          {n.expiry_date && (
+                            <span style={{ fontSize: '0.68rem', fontWeight: 800, color: iconColor, whiteSpace: 'nowrap' }}>
+                              {n.expiry_date}
+                            </span>
+                          )}
                         </div>
-                        <div style={{ fontSize: '0.72rem', color: n.type === 'expiry' ? 'var(--c-danger)' : 'var(--c-wave)', marginTop: '2px', fontWeight: 600 }}>{n.sub}</div>
-                        {n.code && <div style={{ fontSize: '0.68rem', color: 'var(--c-text-secondary)' }}>Code: {n.code}</div>}
+                        <div style={{ fontSize: '0.73rem', color: isExp ? iconColor : 'var(--c-wave)', marginTop: '2px', fontWeight: 600 }}>
+                          {n.sub}
+                        </div>
+                        {n.code && <div style={{ fontSize: '0.68rem', color: 'var(--c-text-secondary)', marginTop: '1px' }}>Code: {n.code}</div>}
                       </div>
                     </button>
-                  ))}
-                </>
-              )}
+                  );
+                });
+              })()}
             </div>
 
             {/* Footer */}
-            <div style={{ borderTop: '1px solid var(--c-border)', padding: '0.6rem 1rem', background: 'var(--c-bg)', display: 'flex', justifyContent: 'flex-end' }}>
+            <div style={{
+              borderTop: '1px solid var(--c-border)',
+              padding: '0.65rem 1rem',
+              background: 'var(--c-bg)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <button
+                onClick={() => { navigate('/stock'); setNotifOpen(false); }}
+                style={{ fontSize: '0.75rem', color: 'var(--c-brand)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700 }}
+              >
+                Stock Verification →
+              </button>
               <button
                 onClick={() => { fetchNotifications(); }}
-                style={{ fontSize: '0.75rem', color: 'var(--c-wave)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}
+                style={{ fontSize: '0.75rem', color: 'var(--c-text-secondary)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}
               >
                 Refresh
               </button>
