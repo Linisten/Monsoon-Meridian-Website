@@ -3,6 +3,9 @@ import { Printer, Download, Filter, TrendingUp, ShoppingCart, Package, DollarSig
 import { supabase } from '../config/supabaseClient';
 import { useConfirm } from '../context/ConfirmContext';
 import { fetchAllRecords } from '../utils/transactionUtils';
+import { printReceipt } from '../utils/printService';
+import ThermalReceipt from '../components/ThermalReceipt';
+import logoUrl from '../assets/logo.jpg';
 
 const Reports = () => {
   const [reportType, setReportType] = useState('sales');
@@ -14,6 +17,8 @@ const Reports = () => {
   const [dateTo,   setDateTo]   = useState(new Date().toISOString().split('T')[0]);
   const [taxRate,  setTaxRate]  = useState(5);
   const [activeRecord, setActiveRecord] = useState(null);
+  const [isPrinting,   setIsPrinting]   = useState(false);
+  const [sysSettings,  setSysSettings]  = useState({});
   const { confirm, alert } = useConfirm();
 
   const formatItemName = (name) => {
@@ -79,16 +84,18 @@ const Reports = () => {
 
   const fetchAll = async () => {
     setLoading(true);
-    const [salesRows, purchaseRows, i, t] = await Promise.all([
+    const [salesRows, purchaseRows, i, t, s] = await Promise.all([
       fetchAllRecords('sales', 'created_at', false),
       fetchAllRecords('purchases', 'created_at', false),
       supabase.from('items').select('*').order('name'),
       supabase.from('tax').select('rate_percent').limit(1).single(),
+      supabase.from('settings').select('*').limit(1).single(),
     ]);
     setSalesData(salesRows || []);
     setPurchaseData(purchaseRows || []);
     if (!i.error) setItemsData(i.data || []);
     if (!t.error && t.data) setTaxRate(t.data.rate_percent || 5);
+    if (!s?.error && s?.data) setSysSettings(s.data);
     setLoading(false);
   };
 
@@ -373,6 +380,36 @@ const Reports = () => {
       await alert('Failed to delete sale: ' + err.message, 'error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handlePrintSaleRecord = async (saleRecord) => {
+    if (!saleRecord || isPrinting) return;
+    setIsPrinting(true);
+
+    const tx = {
+      ...saleRecord,
+      date: saleRecord.created_at ? new Date(saleRecord.created_at).toLocaleString() : new Date().toLocaleString(),
+      gross_total: saleRecord.gross_total ?? saleRecord.total_amount ?? 0,
+      discount_amount: saleRecord.discount_amount ?? 0,
+      tax_percent: saleRecord.tax_percent ?? 0,
+      total_amount: saleRecord.total_amount ?? 0,
+      customer_name: saleRecord.customer_name || 'Walk-in Customer',
+      payment_method: saleRecord.payment_method || 'CASH',
+      items_json: saleRecord.items_json || []
+    };
+
+    try {
+      const result = await printReceipt(tx, sysSettings, null, logoUrl);
+      if (!result.success) {
+        console.warn('Print server error, falling back to browser print:', result.error);
+        window.print();
+      }
+    } catch (err) {
+      console.warn('Print failed, falling back to browser print:', err);
+      window.print();
+    } finally {
+      setIsPrinting(false);
     }
   };
 
@@ -718,14 +755,67 @@ const Reports = () => {
                     Delete Sale & Reverse Stock
                   </button>
                 )}
-                <button onClick={() => window.print()} className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Printer size={16} /> Print</button>
+                {isSale ? (
+                  <button 
+                    onClick={() => handlePrintSaleRecord(data)} 
+                    disabled={isPrinting}
+                    className="btn-secondary" 
+                    style={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      gap: '0.5rem',
+                      backgroundColor: '#eff6ff',
+                      borderColor: '#bfdbfe',
+                      color: '#1d4ed8',
+                      fontWeight: 700
+                    }}
+                  >
+                    <Printer size={16} /> {isPrinting ? 'Printing...' : 'Print'}
+                  </button>
+                ) : (
+                  <button onClick={() => window.print()} className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <Printer size={16} /> Print
+                  </button>
+                )}
                 <button onClick={() => setActiveRecord(null)} className="btn-primary">Close Details</button>
               </div>
 
             </div>
+
+            {/* Thermal receipt for browser print dialog fallback */}
+            {isSale && (
+              <div className="thermal-print-wrapper" style={{ position: 'fixed', left: -9999, top: 0, width: '80mm', opacity: 0, pointerEvents: 'none' }}>
+                <ThermalReceipt 
+                  tx={{
+                    ...data,
+                    date: data.created_at ? new Date(data.created_at).toLocaleString() : new Date().toLocaleString(),
+                    gross_total: data.gross_total ?? data.total_amount ?? 0,
+                    discount_amount: data.discount_amount ?? 0,
+                    tax_percent: data.tax_percent ?? 0,
+                    total_amount: data.total_amount ?? 0,
+                    customer_name: data.customer_name || 'Walk-in Customer',
+                    payment_method: data.payment_method || 'CASH',
+                    items_json: data.items_json || []
+                  }} 
+                  settings={sysSettings} 
+                />
+              </div>
+            )}
           </div>
         );
       })()}
+
+      <style>{`
+        @media print {
+          .thermal-print-wrapper {
+            position: static !important;
+            left: auto !important;
+            top: auto !important;
+            opacity: 1 !important;
+            pointer-events: auto !important;
+          }
+        }
+      `}</style>
     </div>
   );
 };

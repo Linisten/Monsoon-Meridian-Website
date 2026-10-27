@@ -164,7 +164,7 @@ export async function printReceipt(tx, settings = {}, printerName = null, logoUr
     const payload = {
       receipt: {
         id:             tx.id,
-        date:           tx.date || new Date().toLocaleString(),
+        date:           tx.date || (tx.created_at ? new Date(tx.created_at).toLocaleString() : new Date().toLocaleString()),
         customer_name:  tx.customer_name || 'Walk-in',
         payment_method: tx.payment_method || '',
         items_json:     tx.items_json || [],
