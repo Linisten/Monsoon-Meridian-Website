@@ -10,6 +10,9 @@ import SearchableSelect from '../components/SearchableSelect';
 import { printReceipt } from '../utils/printService';
 import ThermalReceipt from '../components/ThermalReceipt';
 import logoUrl from '../assets/logo.jpg';
+import { useAuth } from '../context/AuthContext';
+import { logActivity } from '../utils/activityService';
+import { getUserStock, addUserStock } from '../utils/stockService';
 
 // Category pastel palettes: [background, text, border-accent]
 const ITEM_COLORS = {
@@ -50,6 +53,7 @@ const INSTAGRAM_URL    = `https://www.instagram.com/${INSTAGRAM_HANDLE}/`;
 
 // ── Main Sales Component ─────────────────────────────────────────────────────
 const Sales = () => {
+  const { user } = useAuth();
   const [cart,             setCart]             = useState(() => JSON.parse(sessionStorage.getItem('sales_cart') || '[]'));
   const [items,            setItems]            = useState([]);
   const [activeCategory,   setActiveCategory]   = useState('ALL');
@@ -127,7 +131,14 @@ const Sales = () => {
 
   const fetchItems = async () => {
     const { data, error } = await supabase.from('items').select('*').order('name');
-    if (!error && data) setItems(data);
+    if (!error && data) {
+      const isStaff = user && user.role !== 'Admin';
+      const mapped = data.map(it => ({
+        ...it,
+        stock_quantity: isStaff ? getUserStock(user.id, it.id, 0) : it.stock_quantity
+      }));
+      setItems(mapped);
+    }
   };
 
   const addToCart = useCallback((item) => {
@@ -207,9 +218,18 @@ const Sales = () => {
       customer_name:   selectedCustomer,
       gross_total:     totalAmount,
       discount_amount: discountAmount,
+      user_id:         user?.id,
+      user_name:       user?.name || user?.username,
       ...razorpayData,
     };
-    const { data, error } = await supabase.from('sales').insert([payload]).select();
+    let { data, error } = await supabase.from('sales').insert([payload]).select();
+    if (error && (error.code === 'PGRST204' || error.message?.includes('user_id'))) {
+      delete payload.user_id;
+      delete payload.user_name;
+      const fallbackRes = await supabase.from('sales').insert([payload]).select();
+      data = fallbackRes.data;
+      error = fallbackRes.error;
+    }
     if (error) {
       console.error('Supabase insert error:', error);
       setPaymentOverlay('error:' + (error.message || 'Unknown error'));
@@ -217,15 +237,27 @@ const Sales = () => {
       return;
     }
 
-    // --- DECREMENT INVENTORY (ATOMIC) ---
-    const stockUpdates = cart.map(item => 
-      supabase.rpc('handle_stock_update', { 
-        item_id: item.id, 
-        quantity_change: -item.qty 
-      })
-    );
-    await Promise.all(stockUpdates);
-    // ------------------------------------
+    // --- DECREMENT INVENTORY (SHOP SPECIFIC) ---
+    if (user && user.role !== 'Admin') {
+      const stockUpdates = cart.map(item => 
+        addUserStock({
+          userId: user.id,
+          itemId: item.id,
+          quantityChange: -item.qty,
+          itemName: item.name
+        })
+      );
+      await Promise.all(stockUpdates);
+    } else {
+      const stockUpdates = cart.map(item => 
+        supabase.rpc('handle_stock_update', { 
+          item_id: item.id, 
+          quantity_change: -item.qty 
+        })
+      );
+      await Promise.all(stockUpdates);
+    }
+    // ------------------------------------------
 
     setIsProcessing(false);
     setPaymentOverlay('success');
@@ -234,7 +266,25 @@ const Sales = () => {
     setPaymentMode('CASH');
     setSplitCash('');
     setSplitGpay('');
-    setLastTransaction({ ...payload, id: data?.[0]?.id || `INV-${Date.now()}`, date: new Date().toLocaleString() });
+    
+    const invoiceId = data?.[0]?.id || `INV-${Date.now()}`;
+
+    // Log green Sales action to Admin activity stream
+    logActivity({
+      type: 'SALE',
+      color: '#10b981', // GREEN
+      title: `Sale Completed #${String(invoiceId).substring(0, 8)}`,
+      description: `User "${user?.name || 'Staff'}" billed ${cart.length} item(s) for ₹${netAmount.toFixed(2)} to ${selectedCustomer} via ${method}.`,
+      metadata: {
+        invoice_id: invoiceId,
+        amount: netAmount,
+        customer_name: selectedCustomer,
+        payment_method: method,
+        items_count: cart.length
+      }
+    });
+
+    setLastTransaction({ ...payload, id: invoiceId, date: new Date().toLocaleString() });
     setShowReceipt(true);
   };
 

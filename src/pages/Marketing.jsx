@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../config/supabaseClient';
 import { Megaphone, Users, Mail, MessageSquare, Send, CheckCircle, X, Search, Copy, ExternalLink, Calendar, Tag } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { logActivity } from '../utils/activityService';
 
 const Marketing = () => {
+    const { user } = useAuth();
     const [customers, setCustomers] = useState([]);
     const [selectedIds, setSelectedIds] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -94,6 +97,15 @@ const Marketing = () => {
         
         setBroadcastIndex(0);
         setIsBroadcasting(true);
+
+        logActivity({
+            type: 'MARKETING',
+            color: '#ec4899',
+            title: 'WhatsApp Marketing Broadcast Started',
+            description: `User "${user?.name || 'Staff'}" initiated WhatsApp broadcast to ${selected.length} customer(s).`,
+            metadata: { channel: 'WhatsApp', recipient_count: selected.length, template_id: activeTemplate }
+        });
+
         // Open the first one immediately
         sendNextWhatsApp(selected, 0);
     };

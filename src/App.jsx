@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ConfirmProvider } from './context/ConfirmContext';
 import Layout from './components/layout/Layout';
 
 // Lazy load pages for performance
@@ -14,10 +15,19 @@ const GenericMaster = lazy(() => import('./pages/GenericMaster'));
 const Settings = lazy(() => import('./pages/Settings'));
 const Marketing = lazy(() => import('./pages/Marketing'));
 const BarcodeGenerator = lazy(() => import('./pages/BarcodeGenerator'));
+const Users = lazy(() => import('./pages/Users'));
+const Activities = lazy(() => import('./pages/Activities'));
 
 const ProtectedRoute = ({ children }) => {
   const { isAuthenticated } = useAuth();
   if (!isAuthenticated) return <Navigate to="/login" replace />;
+  return children;
+};
+
+const AdminRoute = ({ children }) => {
+  const { isAuthenticated, isAdmin } = useAuth();
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (!isAdmin) return <Navigate to="/" replace />;
   return children;
 };
 
@@ -51,17 +61,20 @@ function AppRoutes() {
           <Route path="stock" element={<Stock />} />
           <Route path="reports" element={<Reports />} />
           <Route path="master/:type" element={<GenericMaster />} />
-          <Route path="marketing" element={<Marketing />} />
+          <Route path="marketing" element={<AdminRoute><Marketing /></AdminRoute>} />
           <Route path="barcode" element={<BarcodeGenerator />} />
           <Route path="settings" element={<Settings />} />
+          
+          {/* Admin Exclusive: User Management & Real-time Activities */}
+          <Route path="users" element={<AdminRoute><Users /></AdminRoute>} />
+          <Route path="users/:userId" element={<AdminRoute><Users /></AdminRoute>} />
+          <Route path="activities" element={<AdminRoute><Activities /></AdminRoute>} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>
   );
 }
-
-import { ConfirmProvider } from './context/ConfirmContext';
 
 function App() {
   return (

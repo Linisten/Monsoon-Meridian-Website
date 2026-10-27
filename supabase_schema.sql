@@ -1,6 +1,23 @@
+-- =============================================================================
+-- MONSOON MERIDIAN BMS - COMPLETE PRODUCTION SUPABASE DATABASE SCHEMA
+-- =============================================================================
+-- Run this entire script in your Supabase SQL Editor:
+-- Supabase Dashboard -> SQL Editor -> New Query -> Paste & Run
+--
+-- 100% Non-Destructive & Safe for Existing Databases:
+-- - Ensures all required columns exist on pre-existing tables
+-- - Preserves all existing sales, purchases, items, and settings
+-- - Sets up the Admin account (monsoonmeridian@gmail.com / Amma@3747)
+-- =============================================================================
 
+-- Enable required cryptographic extensions
+create extension if not exists "pgcrypto";
 
--- 1. ITEMS TABLE
+-- =============================================================================
+-- 1. CORE OPERATIONAL TABLES & COLUMN ENSURANCES
+-- =============================================================================
+
+-- ITEMS / INVENTORY MASTER
 create table if not exists public.items (
   id               uuid primary key default gen_random_uuid(),
   code             text,
@@ -22,7 +39,16 @@ create table if not exists public.items (
   created_at       timestamptz default now()
 );
 
--- 2. SALES TABLE
+-- Ensure columns exist if items table was created earlier
+alter table public.items add column if not exists code text;
+alter table public.items add column if not exists expiry_date date;
+alter table public.items add column if not exists low_stock_alert numeric(10,3) default 5;
+alter table public.items add column if not exists mrp numeric(10,2) default 0;
+alter table public.items add column if not exists cost_price numeric(10,2) default 0;
+alter table public.items add column if not exists barcode_type text default 'SYSTEM GENERATED';
+alter table public.items add column if not exists item_type text default 'INVENTORY';
+
+-- SALES TRANSACTIONS (POS)
 create table if not exists public.sales (
   id                  uuid primary key default gen_random_uuid(),
   total_amount        numeric(10,2) not null,
@@ -36,7 +62,14 @@ create table if not exists public.sales (
   created_at          timestamptz default now()
 );
 
--- 3. PURCHASES TABLE
+alter table public.sales add column if not exists gross_total numeric(10,2) default 0;
+alter table public.sales add column if not exists discount_amount numeric(10,2) default 0;
+alter table public.sales add column if not exists razorpay_payment_id text;
+alter table public.sales add column if not exists items_json jsonb;
+alter table public.sales add column if not exists user_id text;
+alter table public.sales add column if not exists user_name text;
+
+-- PURCHASES & PROCUREMENT
 create table if not exists public.purchases (
   id               uuid primary key default gen_random_uuid(),
   supplier         text,
@@ -49,34 +82,111 @@ create table if not exists public.purchases (
   other_charges    jsonb,
   notes            text,
   items_json       jsonb,
+  target_user_id   text,
+  target_user_name text,
   created_at       timestamptz default now()
 );
 
--- 4. SETTINGS TABLE (one row per shop)
+alter table public.purchases add column if not exists target_user_id text;
+alter table public.purchases add column if not exists target_user_name text;
+alter table public.purchases add column if not exists items_json jsonb;
+alter table public.purchases add column if not exists other_charges jsonb;
+
+-- SYSTEM SETTINGS
 create table if not exists public.settings (
-  id               uuid primary key default gen_random_uuid(),
-  company_name     text default 'Monsoon Meridian',
-  shop_name        text default 'Monsoon Meridian',
-  address          text default '123 Premium Arcade, Business Bay',
-  phone            text default '+91 9876543210',
-  gst_no           text default '32AABCU9603R1ZX',
-  email            text default 'info@monsoonmeridian.com',
-  upi_id           text default 'monsoonmeridian@upi',
-  razorpay_key     text,
-  app_version      text default '1.0.0',
-  update_message   text,
+  id                   uuid primary key default gen_random_uuid(),
+  company_name         text default 'Monsoon Meridian',
+  shop_name            text default 'Monsoon Meridian',
+  address              text default '123 Premium Arcade, Business Bay',
+  phone                text default '+91 9876543210',
+  gst_no               text default '32AABCU9603R1ZX',
+  email                text default 'monsoonmeridian@gmail.com',
+  upi_id               text default 'monsoonmeridian@upi',
+  razorpay_key         text,
+  app_version          text default '1.0.0',
+  update_message       text,
   thermal_printer_name text,
-  created_at       timestamptz default now()
+  created_at           timestamptz default now()
 );
 
--- Insert default settings row (only if table is empty)
-insert into public.settings (company_name)
-select 'Monsoon Meridian'
+insert into public.settings (company_name, shop_name, email, upi_id)
+select 'Monsoon Meridian', 'Monsoon Meridian', 'monsoonmeridian@gmail.com', 'monsoonmeridian@upi'
 where not exists (select 1 from public.settings);
 
--- ============================================================
--- MASTER TABLES
--- ============================================================
+-- =============================================================================
+-- 2. USERS, ROLES & AUDIT LOGS
+-- =============================================================================
+
+-- USERS TABLE
+create table if not exists public.users (
+  id         uuid primary key default gen_random_uuid(),
+  name       text not null,
+  username   text,
+  password   text not null default 'password123',
+  email      text,
+  role       text default 'Staff',
+  status     text default 'Active',
+  created_at timestamptz default now()
+);
+
+-- Ensure all columns exist on pre-existing users table
+alter table public.users add column if not exists username text;
+alter table public.users add column if not exists password text default 'password123';
+alter table public.users add column if not exists email text;
+alter table public.users add column if not exists role text default 'Staff';
+alter table public.users add column if not exists status text default 'Active';
+alter table public.users add column if not exists name text;
+
+-- Ensure username constraint exists for clean upserts
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'users_username_key'
+  ) then
+    alter table public.users add constraint users_username_key unique (username);
+  end if;
+exception when others then
+  null;
+end $$;
+
+-- Insert or update default Admin account
+insert into public.users (name, username, password, email, role, status)
+values ('Admin', 'admin', 'Amma@3747', 'monsoonmeridian@gmail.com', 'Admin', 'Active')
+on conflict (username) do update
+set name = 'Admin', password = 'Amma@3747', email = 'monsoonmeridian@gmail.com', role = 'Admin';
+
+-- ACTIVITIES AUDIT TRAIL TABLE
+create table if not exists public.activities (
+  id           uuid primary key default gen_random_uuid(),
+  user_id      text,
+  user_name    text not null,
+  user_role    text default 'Staff',
+  action_type  text not null, -- 'SALE', 'PURCHASE', 'UNETHICAL', 'STOCK', 'REPORT', etc.
+  action_title text not null,
+  description  text,
+  metadata     jsonb default '{}'::jsonb,
+  is_unethical boolean default false,
+  color_code   text default '#3b82f6',
+  created_at   timestamptz default now()
+);
+
+alter table public.activities add column if not exists is_unethical boolean default false;
+alter table public.activities add column if not exists color_code text default '#3b82f6';
+alter table public.activities add column if not exists metadata jsonb default '{}'::jsonb;
+
+-- USER / SHOP STOCKS TABLE (Per user/shop inventory allocation)
+create table if not exists public.user_stocks (
+  id             uuid primary key default gen_random_uuid(),
+  user_id        text not null,
+  item_id        uuid references public.items(id) on delete cascade,
+  stock_quantity numeric(10,3) default 0,
+  updated_at     timestamptz default now(),
+  unique(user_id, item_id)
+);
+
+-- =============================================================================
+-- 3. MASTER CONFIGURATION TABLES
+-- =============================================================================
 
 create table if not exists public.customer (
   id         uuid primary key default gen_random_uuid(),
@@ -144,14 +254,6 @@ create table if not exists public.shop (
   created_at timestamptz default now()
 );
 
-create table if not exists public.users (
-  id         uuid primary key default gen_random_uuid(),
-  name       text not null,
-  email      text,
-  role       text default 'Staff',
-  created_at timestamptz default now()
-);
-
 create table if not exists public.date (
   id          uuid primary key default gen_random_uuid(),
   name        text not null,
@@ -159,44 +261,9 @@ create table if not exists public.date (
   created_at  timestamptz default now()
 );
 
--- ============================================================
--- DISABLE ROW LEVEL SECURITY (for dev)
--- ============================================================
-alter table public.items     disable row level security;
-alter table public.sales     disable row level security;
-alter table public.purchases disable row level security;
-alter table public.settings  disable row level security;
-alter table public.customer  disable row level security;
-alter table public.supplier  disable row level security;
-alter table public.tax       disable row level security;
-alter table public.unit      disable row level security;
-alter table public.packtype  disable row level security;
-alter table public.category  disable row level security;
-alter table public.company   disable row level security;
-alter table public.shop      disable row level security;
-alter table public.users     disable row level security;
-alter table public.date      disable row level security;
-
--- ============================================================
--- STORED PROCEDURES (RPCs)
--- ============================================================
-
--- Function to handle atomic stock updates (increments/decrements)
-create or replace function public.handle_stock_update(item_id uuid, quantity_change numeric)
-returns void
-language plpgsql
-security definer
-as $$
-begin
-  update public.items
-  set stock_quantity = greatest(0, items.stock_quantity + quantity_change)
-  where id = item_id;
-end;
-$$;
-
--- ============================================================
--- SEED DATA
--- ============================================================
+-- =============================================================================
+-- 4. MASTER CONFIG SEED (Taxes, Units, Packtypes, Categories)
+-- =============================================================================
 
 insert into public.tax (name, rate_percent, description) values
   ('GST 5%',  5.00,  'Standard goods GST'),
@@ -222,34 +289,64 @@ insert into public.packtype (name, description) values
 on conflict do nothing;
 
 insert into public.category (name, description) values
-  ('SPICES',     'Premium spices and condiments'),
-  ('CHOCOLATES', 'Artisan and imported chocolates'),
+  ('GENERAL',    'General Merchandise'),
+  ('SPICES',     'Spices and condiments'),
+  ('CHOCOLATES', 'Chocolates & Confectionery'),
   ('TEA',        'Specialty teas'),
-  ('COFFEE',     'Single-origin and blended coffees'),
-  ('NUTS',       'Dry fruits and premium nuts')
+  ('COFFEE',     'Blended and single-origin coffees'),
+  ('NUTS',       'Dry fruits and nuts')
 on conflict do nothing;
 
 insert into public.company (name, address, phone, email, gst_no) values
-  ('Monsoon Meridian', '123 Premium Arcade, Business Bay', '+91 9876543210', 'info@monsoonmeridian.com', '32AABCU9603R1ZX')
+  ('Monsoon Meridian', '123 Premium Arcade, Business Bay', '+91 9876543210', 'monsoonmeridian@gmail.com', '32AABCU9603R1ZX')
 on conflict do nothing;
 
-insert into public.items (code, name, category, pack, price, stock_quantity, low_stock_alert) values
-  ('SP-001', 'Kerala Cardamom (8mm)',      'SPICES',     'KG',  2800, 10,  3),
-  ('SP-002', 'Ceylon Cinnamon Quills',     'SPICES',     'KG',  1500, 25,  5),
-  ('SP-003', 'Tellicherry Black Pepper',   'SPICES',     'KG',   850, 50, 10),
-  ('SP-004', 'Clove Premium',              'SPICES',     'KG',  1200, 15,  3),
-  ('SP-005', 'Kashmiri Saffron',           'SPICES',     'NOS',  300,100, 20),
-  ('SP-006', 'Star Anise',                 'SPICES',     'KG',   600, 30,  5),
-  ('CH-001', 'Dark Truffle 70%',           'CHOCOLATES', 'NOS',  450, 40, 10),
-  ('CH-002', 'Belgian Hazelnut Praline',   'CHOCOLATES', 'NOS',  650, 30,  5),
-  ('CH-003', 'Milk Cocoa Bar',             'CHOCOLATES', 'NOS',  120,150, 20),
-  ('CH-004', 'White Ivory Chocolate',      'CHOCOLATES', 'NOS',  250, 20,  5),
-  ('CH-005', 'Dark Bitter 85%',            'CHOCOLATES', 'NOS',  380, 35,  8),
-  ('TE-001', 'Darjeeling First Flush',     'TEA',        'KG',  1200, 15,  3),
-  ('TE-002', 'Assam CTC Premium',          'TEA',        'KG',   450, 40,  8),
-  ('TE-003', 'Kashmiri Kahwa Mix',         'TEA',        'NOS',  380, 25,  5),
-  ('CF-001', 'Arabica Roasted Beans',      'COFFEE',     'KG',   900, 40,  8),
-  ('CF-002', 'Robusta Espresso Blend',     'COFFEE',     'KG',   600, 30,  5),
-  ('NT-001', 'Premium Cashew W240',        'NUTS',       'KG',   800, 20,  4),
-  ('NT-002', 'California Almonds',         'NUTS',       'KG',   950, 25,  5)
-on conflict do nothing;
+-- =============================================================================
+-- 5. STORED PROCEDURES (RPCs)
+-- =============================================================================
+
+create or replace function public.handle_stock_update(item_id uuid, quantity_change numeric)
+returns void
+language plpgsql
+security definer
+as $$
+begin
+  update public.items
+  set stock_quantity = greatest(0, items.stock_quantity + quantity_change)
+  where id = item_id;
+end;
+$$;
+
+-- =============================================================================
+-- 6. DISABLE ROW LEVEL SECURITY (RLS) FOR DIRECT WEB CLIENT ACCESS
+-- =============================================================================
+alter table public.items       disable row level security;
+alter table public.sales       disable row level security;
+alter table public.purchases   disable row level security;
+alter table public.settings    disable row level security;
+alter table public.customer    disable row level security;
+alter table public.supplier    disable row level security;
+alter table public.tax         disable row level security;
+alter table public.unit        disable row level security;
+alter table public.packtype    disable row level security;
+alter table public.category    disable row level security;
+alter table public.company     disable row level security;
+alter table public.shop        disable row level security;
+alter table public.users       disable row level security;
+alter table public.activities  disable row level security;
+alter table public.user_stocks disable row level security;
+alter table public.date        disable row level security;
+
+-- =============================================================================
+-- 7. PERFORMANCE INDEXES
+-- =============================================================================
+create index if not exists idx_items_code on public.items (code);
+create index if not exists idx_items_name on public.items (name);
+create index if not exists idx_items_category on public.items (category);
+create index if not exists idx_sales_created_at on public.sales (created_at desc);
+create index if not exists idx_sales_user_id on public.sales (user_id);
+create index if not exists idx_purchases_created_at on public.purchases (created_at desc);
+create index if not exists idx_activities_user_id on public.activities (user_id);
+create index if not exists idx_activities_created_at on public.activities (created_at desc);
+create index if not exists idx_activities_unethical on public.activities (is_unethical);
+create index if not exists idx_user_stocks_user_item on public.user_stocks (user_id, item_id);

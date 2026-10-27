@@ -2,19 +2,40 @@ import React, { useState, useEffect } from 'react';
 import { Printer, Download, Filter, TrendingUp, ShoppingCart, Package, DollarSign, X } from 'lucide-react';
 import { supabase } from '../config/supabaseClient';
 import { useConfirm } from '../context/ConfirmContext';
+import { useAuth } from '../context/AuthContext';
 import { fetchAllRecords } from '../utils/transactionUtils';
 import { printReceipt } from '../utils/printService';
+import { logActivity } from '../utils/activityService';
 import ThermalReceipt from '../components/ThermalReceipt';
 import logoUrl from '../assets/logo.jpg';
+import { getUserStock } from '../utils/stockService';
 
-const Reports = () => {
+const Reports = ({ filterUserId = null, filterUserName = null }) => {
+  const { user, isAdmin } = useAuth();
+  const effectiveUserId = filterUserId || (!isAdmin ? user?.id : null);
+  const effectiveUserName = filterUserName || (!isAdmin ? (user?.name || user?.username) : null);
   const [reportType, setReportType] = useState('sales');
   const [salesData,    setSalesData]    = useState([]);
   const [purchaseData, setPurchaseData] = useState([]);
   const [itemsData,    setItemsData]    = useState([]);
   const [loading,      setLoading]      = useState(false);
-  const [dateFrom, setDateFrom] = useState(new Date(new Date().setDate(1)).toISOString().split('T')[0]);
-  const [dateTo,   setDateTo]   = useState(new Date().toISOString().split('T')[0]);
+  const getStartOfMonth = () => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    return `${y}-${m}-01`;
+  };
+
+  const getToday = () => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  const [dateFrom, setDateFrom] = useState(getStartOfMonth);
+  const [dateTo,   setDateTo]   = useState(getToday);
   const [taxRate,  setTaxRate]  = useState(5);
   const [activeRecord, setActiveRecord] = useState(null);
   const [isPrinting,   setIsPrinting]   = useState(false);
@@ -99,17 +120,47 @@ const Reports = () => {
     setLoading(false);
   };
 
-  const filterByDate = (rows) => rows.filter(r => {
-    const d = r.created_at?.split('T')[0];
-    return d >= dateFrom && d <= dateTo;
+  const filterByDate = (rows, type = 'sales') => rows.filter(r => {
+    const d = (r.created_at || r.bill_date || '')?.split('T')[0];
+    const inRange = (!dateFrom || d >= dateFrom) && (!dateTo || d <= dateTo);
+    if (!inRange) return false;
+    if (effectiveUserId) {
+      const isForAdmin = effectiveUserId === 'admin' || effectiveUserId === 'usr-admin-01' || (effectiveUserName && effectiveUserName.toLowerCase() === 'admin');
+      if (type === 'sales') {
+        if (isForAdmin) {
+          const isStaff = r.user_id && r.user_id !== 'admin' && r.user_id !== 'usr-admin-01';
+          return !isStaff;
+        }
+        const matches = r.user_id === effectiveUserId ||
+          (effectiveUserName && r.user_name && r.user_name.toLowerCase() === effectiveUserName.toLowerCase());
+        return matches;
+      }
+      if (type === 'purchases') {
+        if (isForAdmin) {
+          const isStaffTarget = r.target_user_id && r.target_user_id !== 'main' && r.target_user_id !== 'admin';
+          return !isStaffTarget;
+        }
+        const matches = r.target_user_id === effectiveUserId ||
+          (effectiveUserName && r.target_user_name && r.target_user_name.toLowerCase() === effectiveUserName.toLowerCase()) ||
+          (Array.isArray(r.items_json) && r.items_json.some(it => it.target_user_id === effectiveUserId || (effectiveUserName && it.target_user_name && it.target_user_name.toLowerCase() === effectiveUserName.toLowerCase())));
+        return matches;
+      }
+    }
+    return true;
   });
 
-  const filteredSales    = filterByDate(salesData);
-  const filteredPurchases= filterByDate(purchaseData);
+  const getItemStock = (item) => {
+    return effectiveUserId 
+      ? getUserStock(effectiveUserId, item.id, item.stock_quantity, effectiveUserId === 'admin')
+      : (item.stock_quantity || 0);
+  };
+
+  const filteredSales    = filterByDate(salesData, 'sales');
+  const filteredPurchases= filterByDate(purchaseData, 'purchases');
 
   const totalSales     = filteredSales.reduce((s, r) => s + (r.total_amount || 0), 0);
   const totalPurchases = filteredPurchases.reduce((s, r) => s + (r.total_amount || 0), 0);
-  const totalStock     = itemsData.reduce((s, i) => s + (i.stock_quantity || 0) * (i.price || 0), 0);
+  const totalStock     = itemsData.reduce((s, i) => s + getItemStock(i) * (i.price || 0), 0);
   const profit         = totalSales - totalPurchases;
 
   const itemWiseSales = (() => {
@@ -339,9 +390,30 @@ const Reports = () => {
         { header: 'Revenue', formatter: r => r.revenue.toFixed(2) }
       ], 'fast_selling_products.csv');
     }
+
+    logActivity({
+      type: 'REPORT',
+      title: `Detailed Report Exported (${reportType.toUpperCase()})`,
+      description: `User "${user?.name || 'Staff'}" exported ${reportType} report to CSV/Excel.`,
+      metadata: { report_type: reportType }
+    });
   };
   
   const handleDeleteSale = async (sale) => {
+    // SECURITY: Only Admin can delete transactions
+    if (!isAdmin) {
+      logActivity({
+        type: 'UNETHICAL',
+        isUnethical: true,
+        color: '#ef4444',
+        title: '⚠️ Unauthorized Sale Deletion Attempt',
+        description: `Staff user "${user?.name || 'Staff'}" attempted to delete Sale Invoice #${sale.id} (₹${sale.total_amount}).`,
+        metadata: { sale_id: sale.id, amount: sale.total_amount, customer: sale.customer_name }
+      });
+      await alert('Access Denied: Only Administrator accounts have permission to delete transactions. This event has been flagged and reported to Admin.', 'danger');
+      return;
+    }
+
     const isConfirmed = await confirm({
       title: 'Delete Sale?',
       message: 'This will REVERSE the stock (add items back to inventory) and permanently remove the record. This action cannot be undone.',
@@ -372,6 +444,13 @@ const Reports = () => {
       
       if (error) throw error;
       
+      logActivity({
+        type: 'SALE',
+        title: `Sale Invoice #${sale.id} Deleted & Stock Reversed`,
+        description: `Administrator deleted Sale Invoice #${sale.id} (₹${sale.total_amount}) and reversed inventory.`,
+        metadata: { sale_id: sale.id, amount: sale.total_amount }
+      });
+
       await alert('Sale deleted and stock reversed successfully.', 'success');
       setActiveRecord(null);
       fetchAll(); // Refresh all data
@@ -566,8 +645,9 @@ const Reports = () => {
               </thead>
               <tbody>
                 {itemsData.map((item, i) => {
-                  const val = (item.stock_quantity || 0) * (item.price || 0);
-                  const isLow = (item.stock_quantity || 0) <= (item.low_stock_alert || 5);
+                  const qty = getItemStock(item);
+                  const val = qty * (item.price || 0);
+                  const isLow = qty <= (item.low_stock_alert || 5);
                   return (
                     <tr key={item.id} style={{ borderBottom: '1px solid var(--c-border)', background: i % 2 === 0 ? 'white' : '#f8fafc' }}>
                       <td style={{ padding: '0.75rem 1rem', fontWeight: 600 }}>{item.code}</td>
@@ -578,7 +658,7 @@ const Reports = () => {
                       <td style={{ padding: '0.75rem 1rem' }}>{item.unit || item.pack}</td>
                       <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>₹{(item.price || 0).toFixed(2)}</td>
                       <td style={{ padding: '0.75rem 1rem', textAlign: 'right', color: isLow ? 'var(--c-danger)' : 'inherit', fontWeight: isLow ? 700 : 400 }}>
-                        {(item.stock_quantity || 0).toFixed(2)} {isLow && '⚠'}
+                        {qty.toFixed(2)} {isLow && '⚠'}
                       </td>
                       <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: 700 }}>₹{val.toFixed(2)}</td>
                     </tr>
@@ -746,7 +826,7 @@ const Reports = () => {
 
               {/* Footer Buttons */}
               <div style={{ padding: '1rem 1.5rem', background: '#f8fafc', borderTop: '1px solid var(--c-border)', display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
-                {isSale && (
+                {isSale && isAdmin && (
                   <button 
                     onClick={() => handleDeleteSale(data)} 
                     className="btn-secondary" 

@@ -3,25 +3,37 @@ import { useLocation } from 'react-router-dom';
 import { 
   Package, AlertTriangle, Clock, IndianRupee, 
   Plus, Search, Edit3, Trash2, Camera, X, Save, 
-  ChevronRight, Barcode, Filter, ArrowUpDown
+  ChevronRight, Barcode, Filter, ArrowUpDown, Store
 } from 'lucide-react';
 import { Scanner } from '@yudiel/react-qr-scanner';
 import { supabase } from '../config/supabaseClient';
 import { setScannerHandler, clearScannerHandler } from '../utils/keyboardManager';
 import { useConfirm } from '../context/ConfirmContext';
+import { useAuth } from '../context/AuthContext';
+import { logActivity } from '../utils/activityService';
+import { getUserStock, addUserStock } from '../utils/stockService';
+import { getAllUsers } from '../utils/userService';
 
-const Stock = () => {
+const Stock = ({ shopUserId = null }) => {
+  const { user, isAdmin } = useAuth();
   const location = useLocation();
   const [items, setItems] = useState([]);
   const [categories, setCategories] = useState([]);
   const [units, setUnits] = useState([]);
   const [taxes, setTaxes] = useState([]);
+  const [usersList, setUsersList] = useState([]);
+  const [selectedShopFilter, setSelectedShopFilter] = useState(
+    shopUserId || (isAdmin ? 'admin' : (user?.id || 'admin'))
+  );
   
+  const activeShopId = shopUserId || selectedShopFilter;
+  const isViewingAdminShop = activeShopId === 'admin' || activeShopId === 'main';
+
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('ALL');
-  const [statusFilter, setStatusFilter] = useState('ALL'); // ALL, EXPIRING, EXPIRED, LOW, OUT_OF_STOCK
-  const [sortBy, setSortBy] = useState('expiry_date'); // default: ascending order of expiry date
+  const [statusFilter, setStatusFilter] = useState('ALL'); // ALL, IN_STOCK, EXPIRING, EXPIRED, LOW, OUT_OF_STOCK
+  const [sortBy, setSortBy] = useState(isViewingAdminShop ? 'expiry_date' : 'name');
   const [sortOrder, setSortOrder] = useState('asc'); // default: asc
   const [activeItem, setActiveItem] = useState(null); // Used for the Modal
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -30,10 +42,32 @@ const Stock = () => {
   
   const { confirm, alert } = useConfirm();
 
+  const viewingUserObj = usersList.find(u => u.id === activeShopId);
+  const viewingShopName = isViewingAdminShop 
+    ? "Admin's Shop (Current Stocks)" 
+    : (viewingUserObj ? `${viewingUserObj.name}'s Shop` : "Shop Inventory");
+
+  const getItemStock = (it) => {
+    return getUserStock(activeShopId, it.id, it.stock_quantity, isViewingAdminShop);
+  };
+
+  useEffect(() => {
+    if (!isViewingAdminShop && sortBy === 'expiry_date') {
+      setSortBy('name');
+    }
+  }, [activeShopId, isViewingAdminShop]);
+
   useEffect(() => {
     fetchData();
     fetchDropdowns();
-  }, []);
+    getAllUsers().then(users => setUsersList(users || []));
+
+    const handleStockUpdate = () => {
+      fetchData();
+    };
+    window.addEventListener('mm_stock_updated', handleStockUpdate);
+    return () => window.removeEventListener('mm_stock_updated', handleStockUpdate);
+  }, [activeShopId]);
 
   // Listen for navigation state from notifications or quick links
   useEffect(() => {
@@ -125,18 +159,26 @@ const Stock = () => {
 
   const stats = {
     totalCount: filteredForStats.length,
+    inStock: filteredForStats.filter(it => getItemStock(it) > 0).length,
     expiringSoon: filteredForStats.filter(it => {
+      const q = getItemStock(it);
+      if (q <= 0) return false;
       if (!it.expiry_date || !it.expiry_date.trim()) return false;
       const d = new Date(it.expiry_date + 'T00:00:00');
       return d >= today && d <= oneMonthFromNow;
     }).length,
     expired: filteredForStats.filter(it => {
+      const q = getItemStock(it);
+      if (q <= 0) return false;
       if (!it.expiry_date || !it.expiry_date.trim()) return false;
       const d = new Date(it.expiry_date + 'T00:00:00');
       return d < today;
     }).length,
-    lowStock: filteredForStats.filter(it => it.stock_quantity > 0 && it.stock_quantity <= (it.low_stock_alert || 5)).length,
-    outOfStock: filteredForStats.filter(it => it.stock_quantity <= 0).length,
+    lowStock: filteredForStats.filter(it => {
+      const q = getItemStock(it);
+      return q > 0 && q <= (it.low_stock_alert || 5);
+    }).length,
+    outOfStock: filteredForStats.filter(it => getItemStock(it) <= 0).length,
   };
 
   // ─── SORTING HANDLER ──────────────────────────────────────────────────
@@ -152,13 +194,13 @@ const Stock = () => {
   // ─── HANDLERS ──────────────────────────────────────────────────────────
   const openEditModal = (item = null) => {
     if (item) {
-      setActiveItem({ ...item, expiry_date: item.expiry_date || '' });
+      setActiveItem({ ...item });
     } else {
       setActiveItem({
         name: '', code: '', category: categories[0] || 'GENERAL', 
         unit: units[0] || 'NOS', tax: taxes[0]?.name || 'GST 0%', 
         cost_price: 0, price: 0, mrp: 0, stock_quantity: 0, 
-        low_stock_alert: 5, expiry_date: '', image_url: ''
+        low_stock_alert: 5, image_url: ''
       });
     }
     setIsModalOpen(true);
@@ -169,14 +211,25 @@ const Stock = () => {
     setIsSaving(true);
     
     const payload = { ...activeItem };
-    if (!payload.expiry_date || !payload.expiry_date.trim()) {
-      payload.expiry_date = null;
-    }
+    delete payload.expiry_date;
     let error;
 
     if (payload.id) {
-      ({ error } = await supabase.from('items').update(payload).eq('id', payload.id));
+      // Product details are common to both admin and users; preserve shop stock levels
+      const updateDetails = {
+        name: payload.name,
+        code: payload.code || '',
+        category: payload.category,
+        unit: payload.unit,
+        cost_price: parseFloat(payload.cost_price) || 0,
+        price: parseFloat(payload.price) || 0,
+        mrp: parseFloat(payload.mrp) || 0,
+        low_stock_alert: parseFloat(payload.low_stock_alert) || 5,
+        image_url: payload.image_url || ''
+      };
+      ({ error } = await supabase.from('items').update(updateDetails).eq('id', payload.id));
     } else {
+      payload.stock_quantity = 0;
       ({ error } = await supabase.from('items').insert([payload]));
     }
 
@@ -184,6 +237,12 @@ const Stock = () => {
     if (error) {
       alert('Error saving: ' + error.message, 'error');
     } else {
+      logActivity({
+        type: 'STOCK',
+        title: payload.id ? `Stock Item Updated: "${payload.name}"` : `New Stock Item Created: "${payload.name}"`,
+        description: `User "${user?.name || 'Staff'}" ${payload.id ? 'updated' : 'added'} product "${payload.name}" (Qty: ${payload.stock_quantity}, Price: ₹${payload.price}).`,
+        metadata: { item_id: payload.id, item_name: payload.name, stock_qty: payload.stock_quantity, price: payload.price }
+      });
       await alert('Item saved successfully!', 'success');
       setIsModalOpen(false);
       fetchData();
@@ -191,6 +250,20 @@ const Stock = () => {
   };
 
   const handleDelete = async (id, name) => {
+    // Only Admin can delete items from stock. Staff attempting it triggers an UNETHICAL alert in red!
+    if (!isAdmin) {
+      logActivity({
+        type: 'UNETHICAL',
+        isUnethical: true,
+        color: '#ef4444',
+        title: '⚠️ Unauthorized Stock Deletion Attempt',
+        description: `Staff user "${user?.name || 'Staff'}" attempted to permanently delete product "${name}" (ID: ${id}) from the database.`,
+        metadata: { item_id: id, item_name: name }
+      });
+      await alert('Access Denied: Only Administrator accounts can delete products from inventory. This unethical action has been reported to Admin.', 'danger');
+      return;
+    }
+
     const isConfirmed = await confirm({
       title: 'Delete Item?',
       message: `Are you sure you want to delete "${name}"? This cannot be undone.`,
@@ -203,10 +276,41 @@ const Stock = () => {
       if (error) {
         alert('Error deleting: ' + error.message, 'error');
       } else {
+        logActivity({
+          type: 'STOCK',
+          title: `Stock Item Removed: "${name}"`,
+          description: `Administrator permanently deleted product "${name}" from inventory.`,
+          metadata: { item_id: id, item_name: name }
+        });
         await alert('Item deleted successfully', 'success');
         fetchData();
       }
     }
+  };
+
+  const handleQuickAddStock = async (item) => {
+    const qtyStr = window.prompt(`Enter quantity of "${item.name}" to add to ${viewingShopName}:`, "10");
+    if (!qtyStr) return;
+    const qty = parseFloat(qtyStr);
+    if (isNaN(qty) || qty <= 0) return alert('Please enter a valid positive number', 'error');
+
+    await addUserStock({
+      userId: activeShopId,
+      itemId: item.id,
+      quantityChange: qty,
+      itemName: item.name
+    });
+
+    logActivity({
+      type: 'STOCK',
+      color: '#10b981',
+      title: `Stock Allocated to ${viewingShopName}`,
+      description: `Admin allocated ${qty} units of "${item.name}" to shop "${viewingShopName}".`,
+      metadata: { item_id: item.id, item_name: item.name, allocated_qty: qty, shop_user_id: activeShopId }
+    });
+
+    await alert(`Added ${qty} units of "${item.name}" to ${viewingShopName}!`, 'success');
+    fetchData();
   };
 
   const uploadImage = async (file) => {
@@ -265,6 +369,14 @@ const Stock = () => {
           color="#3b82f6" 
           isActive={statusFilter === 'ALL'}
           onClick={() => setStatusFilter('ALL')}
+        />
+        <StatCard 
+          title="In Stock" 
+          value={stats.inStock} 
+          icon={Package} 
+          color="#10b981" 
+          isActive={statusFilter === 'IN_STOCK'}
+          onClick={() => setStatusFilter('IN_STOCK')}
         />
         <StatCard 
           title="Expiring (1 Month)" 
@@ -411,6 +523,29 @@ const Stock = () => {
               />
             </div>
 
+            {/* Shop Selector / Indicator */}
+            {isAdmin && !shopUserId ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: '#f8fafc', padding: '0.35rem 0.75rem', borderRadius: '10px', border: '1.5px solid #cbd5e1' }}>
+                <Store size={16} color="#0f766e" />
+                <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#0f766e', whiteSpace: 'nowrap' }}>Shop:</span>
+                <select
+                  value={selectedShopFilter}
+                  onChange={(e) => setSelectedShopFilter(e.target.value)}
+                  style={{ border: 'none', background: 'transparent', fontWeight: 700, fontSize: '0.82rem', color: '#0f172a', outline: 'none', cursor: 'pointer' }}
+                >
+                  <option value="admin">🏢 Admin's Shop (Current Stocks)</option>
+                  {usersList.filter(u => u.role !== 'Admin').map(u => (
+                    <option key={u.id} value={u.id}>🏪 {u.name}'s Shop (@{u.username})</option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: '#f0fdf4', padding: '0.45rem 0.85rem', borderRadius: '10px', border: '1px solid #86efac', color: '#166534', fontWeight: 700, fontSize: '0.82rem', whiteSpace: 'nowrap' }}>
+                <Store size={15} />
+                <span>Shop: <strong>{viewingShopName}</strong></span>
+              </div>
+            )}
+
             {/* Sorting Indicator Badge */}
             <div style={{
               display: 'inline-flex',
@@ -553,13 +688,21 @@ const Stock = () => {
                 const displayedItems = items
                   .filter(it => (selectedCategory === 'ALL' || it.category === selectedCategory))
                   .filter(it => {
-                    if (statusFilter === 'LOW') return it.stock_quantity > 0 && it.stock_quantity <= (it.low_stock_alert || 5);
-                    if (statusFilter === 'OUT_OF_STOCK') return it.stock_quantity <= 0;
+                    if (statusFilter === 'IN_STOCK') return getItemStock(it) > 0;
+                    if (statusFilter === 'LOW') {
+                      const q = getItemStock(it);
+                      return q > 0 && q <= (it.low_stock_alert || 5);
+                    }
+                    if (statusFilter === 'OUT_OF_STOCK') return getItemStock(it) <= 0;
                     if (statusFilter === 'EXPIRED') {
+                      const q = getItemStock(it);
+                      if (q <= 0) return false;
                       if (!it.expiry_date || !it.expiry_date.trim()) return false;
                       return new Date(it.expiry_date + 'T00:00:00') < today;
                     }
                     if (statusFilter === 'EXPIRING') {
+                      const q = getItemStock(it);
+                      if (q <= 0) return false;
                       if (!it.expiry_date || !it.expiry_date.trim()) return false;
                       const d = new Date(it.expiry_date + 'T00:00:00');
                       return d >= today && d <= oneMonthFromNow;
@@ -597,7 +740,7 @@ const Stock = () => {
                       return sortOrder === 'asc' ? comp : -comp;
                     }
                     if (sortBy === 'stock') {
-                      const diff = (a.stock_quantity || 0) - (b.stock_quantity || 0);
+                      const diff = getItemStock(a) - getItemStock(b);
                       return sortOrder === 'asc' ? diff : -diff;
                     }
                     if (sortBy === 'mrp') {
@@ -619,10 +762,13 @@ const Stock = () => {
                 }
 
                 return displayedItems.map((it) => {
+                  const itemStock = getItemStock(it);
+                  const hasStock = itemStock > 0;
                   const expStatus = getExpiryStatus(it.expiry_date);
-                  const isLow = it.stock_quantity <= (it.low_stock_alert || 5);
-                  const isExpired = expStatus.status === 'expired' || expStatus.status === 'expired_today';
-                  const isExpiringSoon = expStatus.status === 'expiring_soon';
+                  const isLow = hasStock && itemStock <= (it.low_stock_alert || 5);
+                  const isOut = itemStock <= 0;
+                  const isExpired = hasStock && (expStatus.status === 'expired' || expStatus.status === 'expired_today');
+                  const isExpiringSoon = hasStock && expStatus.status === 'expiring_soon';
 
                   let rowBg = 'transparent';
                   if (isExpired) rowBg = '#fff1f2';
@@ -652,7 +798,7 @@ const Stock = () => {
                         </span>
                       </td>
                       <td style={{ padding: '1rem 1.5rem', whiteSpace: 'nowrap' }}>
-                        {it.expiry_date && it.expiry_date.trim() ? (
+                        {hasStock && it.expiry_date && it.expiry_date.trim() ? (
                           <div>
                             <div style={{ fontWeight: 800, fontSize: '0.95rem', color: isExpired ? '#dc2626' : (isExpiringSoon ? '#c2410c' : 'var(--c-text-primary)') }}>
                               {it.expiry_date}
@@ -676,18 +822,23 @@ const Stock = () => {
                             </div>
                           </div>
                         ) : (
-                          <span style={{ fontSize: '0.78rem', color: '#94a3b8', fontStyle: 'italic' }}>
-                            — Not Set —
+                          <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
+                            {isViewingAdminShop && it.expiry_date ? it.expiry_date : '—'}
                           </span>
                         )}
                       </td>
                       <td style={{ padding: '1rem 1.5rem', textAlign: 'center' }}>
-                        <div style={{ fontWeight: 800, fontSize: '1.1rem', color: isLow || isExpired ? '#ef4444' : '#10b981' }}>
-                          {Math.round(it.stock_quantity)}
+                        <div style={{ fontWeight: 800, fontSize: '1.1rem', color: isOut ? '#94a3b8' : (isLow ? '#f59e0b' : '#10b981') }}>
+                          {Math.round(itemStock)}
                         </div>
                         {isLow && (
                           <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#b45309', marginTop: '2px' }}>
                             Low Stock
+                          </div>
+                        )}
+                        {isOut && (
+                          <div style={{ fontSize: '0.68rem', fontWeight: 600, color: '#94a3b8', marginTop: '2px' }}>
+                            Out of Stock
                           </div>
                         )}
                       </td>
@@ -696,7 +847,17 @@ const Stock = () => {
                       </td>
                       <td style={{ padding: '1rem 1.5rem', textAlign: 'right' }}>
                         <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-                          <button onClick={() => openEditModal(it)} className="btn-secondary" style={{ padding: '0.5rem', borderRadius: '10px', color: 'var(--c-brand)' }} title="Edit">
+                          {!isViewingAdminShop && isAdmin && (
+                            <button 
+                              onClick={() => handleQuickAddStock(it)} 
+                              className="btn-secondary" 
+                              style={{ padding: '0.5rem', borderRadius: '10px', color: '#16a34a', border: '1px solid #86efac', background: '#f0fdf4' }} 
+                              title={`Add Stock to ${viewingShopName}`}
+                            >
+                              <Plus size={18} />
+                            </button>
+                          )}
+                          <button onClick={() => openEditModal(it)} className="btn-secondary" style={{ padding: '0.5rem', borderRadius: '10px', color: 'var(--c-brand)' }} title="Edit Product Details">
                             <Edit3 size={18} />
                           </button>
                           <button onClick={() => handleDelete(it.id, it.name)} className="btn-secondary" style={{ padding: '0.5rem', borderRadius: '10px', color: 'var(--c-danger)' }} title="Delete">
@@ -811,16 +972,9 @@ const Stock = () => {
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>
-
-                  <div>
-                    <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--c-text-secondary)', display: 'block', marginBottom: '0.5rem' }}>Low Stock Alert</label>
-                    <input type="number" value={activeItem.low_stock_alert} onChange={e => setActiveItem({...activeItem, low_stock_alert: parseFloat(e.target.value)})} />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--c-text-secondary)', display: 'block', marginBottom: '0.5rem' }}>Expiry Date</label>
-                    <input type="date" value={activeItem.expiry_date} onChange={e => setActiveItem({...activeItem, expiry_date: e.target.value})} />
-                  </div>
+                <div>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--c-text-secondary)', display: 'block', marginBottom: '0.5rem' }}>Low Stock Alert</label>
+                  <input type="number" value={activeItem.low_stock_alert} onChange={e => setActiveItem({...activeItem, low_stock_alert: parseFloat(e.target.value)})} />
                 </div>
               </div>
             </div>

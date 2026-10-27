@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../config/supabaseClient';
-import { Save, Plus, Trash2, Database, ArrowLeft } from 'lucide-react';
+import { Save, Plus, Trash2, Database, ArrowLeft, ShieldAlert } from 'lucide-react';
 import { useConfirm } from '../context/ConfirmContext';
+import { useAuth } from '../context/AuthContext';
+import { logActivity } from '../utils/activityService';
 
 // ── Field schema config for each master type ─────────────────────────────────
 const MASTER_CONFIG = {
@@ -98,9 +100,11 @@ const FALLBACK = {
 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
-const GenericMaster = () => {
-  const { type } = useParams();
+const GenericMaster = ({ masterType = null }) => {
+  const { type: paramType } = useParams();
+  const type = masterType || paramType;
   const navigate = useNavigate();
+  const { user, isAdmin } = useAuth();
   const config = MASTER_CONFIG[type] || FALLBACK;
   const fields  = config.fields;
 
@@ -152,6 +156,18 @@ const GenericMaster = () => {
       ({ error: err } = await supabase.from(type).insert([payload]));
     }
     if (err) return alert('Error: ' + err.message, 'error');
+    
+    // Log activity
+    const actionType = type === 'customer' ? 'CUSTOMER' : (type === 'tax' ? 'TAX' : 'STOCK');
+    const colorCode = type === 'customer' ? '#0d9488' : (type === 'tax' ? '#0284c7' : '#64748b');
+    logActivity({
+      type: actionType,
+      color: colorCode,
+      title: `${config.label} Record Saved: "${payload.name}"`,
+      description: `User "${user?.name || 'Staff'}" saved ${config.label} record for "${payload.name}".`,
+      metadata: { master_type: type, name: payload.name }
+    });
+
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
     fetchData();
@@ -159,6 +175,19 @@ const GenericMaster = () => {
 
   const handleDelete = async () => {
     if (!activeRecord?.id) return;
+
+    if (!isAdmin) {
+      logActivity({
+        type: 'UNETHICAL',
+        isUnethical: true,
+        color: '#ef4444',
+        title: `⚠️ Unauthorized ${config.label} Deletion Attempt`,
+        description: `Staff user "${user?.name || 'Staff'}" attempted to delete ${config.label} "${activeRecord.name}".`,
+        metadata: { master_type: type, record_id: activeRecord.id, name: activeRecord.name }
+      });
+      await alert(`Access Denied: Only Administrator accounts can delete ${config.label} records. This attempt has been reported to Admin.`, 'danger');
+      return;
+    }
     
     const isConfirmed = await confirm({
       title: `Delete ${config.label}?`,
@@ -171,10 +200,35 @@ const GenericMaster = () => {
     if (!isConfirmed) return;
     const { error: err } = await supabase.from(type).delete().eq('id', activeRecord.id);
     if (err) return alert('Error: ' + err.message, 'error');
+    
+    logActivity({
+      type: 'STOCK',
+      title: `${config.label} Deleted: "${activeRecord.name}"`,
+      description: `Admin deleted ${config.label} record "${activeRecord.name}".`,
+      metadata: { master_type: type, record_id: activeRecord.id, name: activeRecord.name }
+    });
+
     fetchData();
   };
 
   const filtered = data.filter(d => d.name?.toLowerCase().includes(search.toLowerCase()));
+
+  if (type === 'tax' && !isAdmin) {
+    return (
+      <div className="card" style={{ padding: '3rem', textAlign: 'center', maxWidth: 540, margin: '3rem auto', border: '1.5px solid #fee2e2' }}>
+        <div style={{ color: '#ef4444', marginBottom: '1rem', display: 'flex', justifyContent: 'center' }}>
+          <ShieldAlert size={54} />
+        </div>
+        <h2 style={{ fontSize: '1.4rem', fontWeight: 900, color: '#0f172a', margin: '0 0 0.5rem' }}>Admin Exclusive Feature</h2>
+        <p style={{ color: '#64748b', fontSize: '0.9rem', lineHeight: 1.5, marginBottom: '1.5rem' }}>
+          Tax rates and configurations are exclusively managed by the Administrator. Regular shop users are not permitted to view or alter tax settings.
+        </p>
+        <button onClick={() => navigate('/')} className="btn-primary" style={{ padding: '0.6rem 1.5rem' }}>
+          Back to Dashboard
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div style={{ height: 'calc(100vh - 120px)', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
@@ -182,9 +236,11 @@ const GenericMaster = () => {
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <button onClick={() => navigate('/')} style={{ color: 'var(--c-text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem', fontWeight: 600 }}>
-            <ArrowLeft size={18} /> Back
-          </button>
+          {!masterType && (
+            <button onClick={() => navigate('/')} style={{ color: 'var(--c-text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem', fontWeight: 600 }}>
+              <ArrowLeft size={18} /> Back
+            </button>
+          )}
           <h1 style={{ fontSize: '1.8rem', fontWeight: 900, margin: 0, color: 'var(--c-wave)' }}>
             {config.label} Master
           </h1>

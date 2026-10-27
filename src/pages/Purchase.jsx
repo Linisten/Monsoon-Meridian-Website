@@ -1,14 +1,23 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Save, XCircle, Plus, CheckCircle } from 'lucide-react';
+import { Search, Save, XCircle, Plus, CheckCircle, Store, Users, ChevronDown } from 'lucide-react';
 import { supabase } from '../config/supabaseClient';
 import SearchableSelect from '../components/SearchableSelect';
 import { setScannerHandler, clearScannerHandler } from '../utils/keyboardManager';
 import { useConfirm } from '../context/ConfirmContext';
+import { useAuth } from '../context/AuthContext';
+import { logActivity } from '../utils/activityService';
+import { getAllUsers } from '../utils/userService';
+import { addUserStock } from '../utils/stockService';
 
 const Purchase = () => {
+  const { user, isAdmin } = useAuth();
   const [billItems, setBillItems] = useState([]);
   const [items, setItems] = useState([]);
+  const [usersList, setUsersList] = useState([]);
+  const [targetShopUser, setTargetShopUser] = useState(isAdmin ? 'main' : (user?.id || 'main')); // 'main' or user.id
+  const [showTargetUsersDropdown, setShowTargetUsersDropdown] = useState(false);
+  const targetUsersDropdownRef = useRef(null);
   const [selectedSupplier, setSelectedSupplier] = useState('ABC AGENCIES(Rs)');
   const [activeItem, setActiveItem] = useState(null);
   const [purQty, setPurQty] = useState(1);
@@ -75,6 +84,17 @@ const Purchase = () => {
   useEffect(() => {
     fetchItems();
     fetchSuppliers();
+    getAllUsers().then(users => {
+      setUsersList(users || []);
+    });
+
+    const handleClickOutside = (e) => {
+      if (targetUsersDropdownRef.current && !targetUsersDropdownRef.current.contains(e.target)) {
+        setShowTargetUsersDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
   const fetchSuppliers = async () => {
@@ -90,13 +110,18 @@ const Purchase = () => {
   const addItemToBill = () => {
     if (!activeItem) return;
     
-    // Workflow logic: Match existing items in bill to avoid duplicates
-    const existingItemIndex = billItems.findIndex(it => it.id === activeItem.id);
+    const effectiveUserId = isAdmin ? targetShopUser : (user?.id || 'main');
+    const targetUserObj = usersList.find(u => u.id === effectiveUserId);
+    const targetShopName = effectiveUserId === 'main' 
+      ? 'Central Warehouse' 
+      : (targetUserObj ? targetUserObj.name : 'Shop');
+
+    // Workflow logic: Match existing items in bill for same item and same target shop
+    const existingItemIndex = billItems.findIndex(it => it.id === activeItem.id && it.target_user_id === effectiveUserId);
     if (existingItemIndex !== -1) {
       const nextItems = [...billItems];
       const existing = { ...nextItems[existingItemIndex] };
       existing.qty += purQty;
-      // Recalculate if rate changed or keep consistent
       existing.rate = purRate; 
       existing.amount = existing.qty * existing.rate;
       nextItems[existingItemIndex] = existing;
@@ -107,7 +132,9 @@ const Purchase = () => {
         qty: purQty,
         rate: purRate,
         expiry: purExpiry,
-        amount: purQty * purRate
+        amount: purQty * purRate,
+        target_user_id: effectiveUserId,
+        target_user_name: targetShopName
       };
       setBillItems([...billItems, newItem]);
     }
@@ -140,8 +167,14 @@ const Purchase = () => {
 
   const savePurchase = async () => {
     if (billItems.length === 0) return alert('No items to purchase', 'error');
+
+    const effectiveShopUser = !isAdmin ? (user?.id || 'main') : (targetShopUser || 'main');
+    const selectedShopObj = usersList.find(u => u.id === effectiveShopUser);
+    const destinationShopName = effectiveShopUser === 'main'
+      ? 'Central Warehouse'
+      : (selectedShopObj ? selectedShopObj.name : (user?.name || 'Shop'));
     
-    // Save purchase record with full items payload
+    // Save purchase record with full items payload and target user/shop
     const { error: purchaseError } = await supabase.from('purchases').insert({
       supplier: selectedSupplier,
       total_amount: grandTotal,
@@ -152,33 +185,50 @@ const Purchase = () => {
       tax_type: taxType,
       items_json: billItems,
       other_charges: otherCharges.filter(c => (parseFloat(c.amount) || 0) > 0),
-      notes: notes
+      notes: notes,
+      target_user_id: effectiveShopUser,
+      target_user_name: destinationShopName
     });
     if (purchaseError) return alert('Error saving purchase: ' + purchaseError.message, 'error');
 
-    // Step 5: Auto-update stock_quantity and expiry_date
-    const stockUpdates = billItems.map(item => {
-      const updates = [
-        supabase.rpc('handle_stock_update', { 
-          item_id: item.id, 
-          quantity_change: item.qty 
-        })
-      ];
-      
+    // Step 5: Auto-update user stock and master item stock + expiry
+    const stockUpdates = billItems.map(async item => {
+      // Credited to the specific user's (shop's) stock
+      await addUserStock({
+        userId: item.target_user_id || targetShopUser || 'main',
+        itemId: item.id,
+        quantityChange: item.qty,
+        itemName: item.name
+      });
+
       // If expiry was provided, update it in the items master record
       if (item.expiry) {
-        updates.push(
-          supabase.from('items')
-            .update({ expiry_date: item.expiry })
-            .eq('id', item.id)
-        );
+        await supabase.from('items')
+          .update({ expiry_date: item.expiry })
+          .eq('id', item.id);
       }
-      return Promise.all(updates);
     });
     
     await Promise.all(stockUpdates);
 
-    await alert(`Purchase saved! Stock and Expiry dates updated for ${billItems.length} item(s).`, 'success');
+    // Log blue Purchase action to Admin activity stream
+    logActivity({
+      type: 'PURCHASE',
+      color: '#3b82f6', // BLUE
+      title: `Purchase Entry Saved (${billNo || 'Auto-No'})`,
+      description: `User "${user?.name || 'Staff'}" recorded purchase of ${billItems.length} item(s) worth ₹${grandTotal.toFixed(2)} from ${selectedSupplier} for shop "${destinationShopName}".`,
+      metadata: {
+        bill_no: billNo || 'Auto',
+        supplier: selectedSupplier,
+        total_amount: grandTotal,
+        payment_mode: paymentMode,
+        items_count: billItems.length,
+        target_shop: destinationShopName,
+        target_user_id: targetShopUser
+      }
+    });
+
+    await alert(`Purchase saved! Stock for shop "${destinationShopName}" updated across ${billItems.length} item(s).`, 'success');
     setBillItems([]);
     setBillNo('');
     setReferenceNo('');
@@ -299,7 +349,15 @@ const Purchase = () => {
                     <div key={index} style={{ padding: '0.5rem 1.0rem', display: 'grid', gridTemplateColumns: '40px 60px 2fr 80px 60px 60px 80px 80px 80px 40px', fontSize: '0.8rem', borderBottom: '1px solid var(--c-border)' }}>
                       <div style={{color:'var(--c-text-secondary)'}}>{index + 1}</div>
                       <div style={{fontWeight:600}}>{item.code}</div>
-                      <div style={{color:'var(--c-olive-dark)'}}>{formatItemName(item.name)}</div>
+                      <div>
+                        <div style={{color:'var(--c-olive-dark)'}}>{formatItemName(item.name)}</div>
+                        {item.target_user_name && (
+                          <div style={{ fontSize: '0.65rem', color: '#166534', fontWeight: 700, marginTop: '2px', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#16a34a' }} />
+                            {item.target_user_name}
+                          </div>
+                        )}
+                      </div>
                       <div style={{fontSize: '0.7rem'}}>{item.expiry || '--'}</div>
                       <div>{item.unit || item.pack}</div>
                       <div style={{textAlign:'right', fontWeight:600}}>{item.qty}</div>
@@ -430,10 +488,147 @@ const Purchase = () => {
                 </button>
               </div>
             </div>
-            <div style={{ display: 'flex', marginTop: '1rem', justifyContent: 'flex-end' }}>
-               <button onClick={savePurchase} className="btn-primary" style={{ padding: '0.75rem 1.5rem', backgroundColor: 'var(--c-success)', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                 <CheckCircle size={18} /> Process Purchase
-               </button>
+
+            <div style={{ display: 'flex', marginTop: '1.25rem', justifyContent: 'flex-end', alignItems: 'center', gap: '0.75rem' }}>
+              
+              {/* Target Users Button with small symbol beside Process Purchase (Admin exclusive) */}
+              {isAdmin && (
+                <div ref={targetUsersDropdownRef} style={{ position: 'relative' }}>
+                  <button
+                    id="target-users-btn"
+                    type="button"
+                    onClick={() => setShowTargetUsersDropdown(!showTargetUsersDropdown)}
+                    style={{
+                      padding: '0.75rem 1.15rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      backgroundColor: targetShopUser === 'main' ? '#f0fdf4' : '#eff6ff',
+                      color: targetShopUser === 'main' ? '#166534' : '#1d4ed8',
+                      border: targetShopUser === 'main' ? '1.5px solid #86efac' : '1.5px solid #93c5fd',
+                      borderRadius: 'var(--radius-md)',
+                      fontWeight: 700,
+                      fontSize: '0.85rem',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                      boxShadow: 'var(--shadow-sm)'
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-1px)'}
+                    onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
+                  >
+                    <Users size={16} color={targetShopUser === 'main' ? '#16a34a' : '#2563eb'} />
+                    <span>Target Users</span>
+                    <span style={{
+                      fontSize: '0.7rem',
+                      fontWeight: 800,
+                      background: targetShopUser === 'main' ? '#dcfce7' : '#dbeafe',
+                      color: targetShopUser === 'main' ? '#15803d' : '#1e40af',
+                      padding: '2px 7px',
+                      borderRadius: 999,
+                      marginLeft: 2
+                    }}>
+                      {targetShopUser === 'main' ? 'Main Stock' : (usersList.find(u => u.id === targetShopUser)?.name || 'Shop')}
+                    </span>
+                    <ChevronDown size={14} style={{ transform: showTargetUsersDropdown ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+                  </button>
+
+                  {/* Popover Dropdown for selecting Target User / Shop */}
+                  {showTargetUsersDropdown && (
+                    <div style={{
+                      position: 'absolute',
+                      bottom: '100%',
+                      right: 0,
+                      marginBottom: '8px',
+                      width: '290px',
+                      background: 'white',
+                      borderRadius: '12px',
+                      border: '1.5px solid var(--c-border)',
+                      boxShadow: '0 12px 30px -5px rgba(0,0,0,0.18)',
+                      zIndex: 100,
+                      overflow: 'hidden',
+                      padding: '0.5rem'
+                    }}>
+                      <div style={{ padding: '0.4rem 0.6rem', fontSize: '0.72rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', borderBottom: '1px solid #f1f5f9', marginBottom: '0.25rem' }}>
+                        Stock Destination User / Shop
+                      </div>
+
+                      {/* Main Admin Stock */}
+                      <div
+                        onClick={() => { setTargetShopUser('main'); setShowTargetUsersDropdown(false); }}
+                        style={{
+                          padding: '0.55rem 0.75rem',
+                          borderRadius: '8px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          cursor: 'pointer',
+                          background: targetShopUser === 'main' ? '#f0fdf4' : 'transparent',
+                          color: targetShopUser === 'main' ? '#166534' : '#1e293b',
+                          fontSize: '0.82rem',
+                          fontWeight: targetShopUser === 'main' ? 800 : 600,
+                          transition: 'background 0.15s'
+                        }}
+                        onMouseEnter={e => { if (targetShopUser !== 'main') e.currentTarget.style.background = '#f8fafc'; }}
+                        onMouseLeave={e => { if (targetShopUser !== 'main') e.currentTarget.style.background = 'transparent'; }}
+                      >
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          🏢 Central Warehouse (Main)
+                        </span>
+                        {targetShopUser === 'main' && <CheckCircle size={14} color="#16a34a" />}
+                      </div>
+
+                      {/* Staff Shops List */}
+                      {usersList.filter(u => u.role !== 'Admin').map(u => {
+                        const isSelected = targetShopUser === u.id;
+                        return (
+                          <div
+                            key={u.id}
+                            onClick={() => { setTargetShopUser(u.id); setShowTargetUsersDropdown(false); }}
+                            style={{
+                              padding: '0.55rem 0.75rem',
+                              borderRadius: '8px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              cursor: 'pointer',
+                              background: isSelected ? '#eff6ff' : 'transparent',
+                              color: isSelected ? '#1d4ed8' : '#1e293b',
+                              fontSize: '0.82rem',
+                              fontWeight: isSelected ? 800 : 600,
+                              transition: 'background 0.15s'
+                            }}
+                            onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = '#f8fafc'; }}
+                            onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
+                          >
+                            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              🏪 {u.name} (@{u.username})
+                            </span>
+                            {isSelected && <CheckCircle size={14} color="#2563eb" />}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Process Purchase Button */}
+              <button 
+                id="process-purchase-btn"
+                onClick={savePurchase} 
+                className="btn-primary" 
+                style={{ 
+                  padding: '0.75rem 1.5rem', 
+                  backgroundColor: 'var(--c-success)', 
+                  display: 'flex', 
+                  gap: '0.5rem', 
+                  alignItems: 'center',
+                  fontWeight: 700,
+                  fontSize: '0.85rem'
+                }}
+              >
+                <CheckCircle size={18} /> Process Purchase
+              </button>
             </div>
           </div>
         </div>
