@@ -5,12 +5,13 @@ import {
   Activity, ArrowLeft, CheckCircle, AlertTriangle, ShoppingCart, 
   ShoppingBag, ClipboardList, TrendingUp, Megaphone, Barcode, 
   Settings as SettingsIcon, FileText, Calendar, Filter, Eye, EyeOff,
-  Clock, IndianRupee, Search, RefreshCw, X, Pencil, Package, Store
+  Clock, IndianRupee, Search, RefreshCw, X, Pencil, Package, Store,
+  Phone, Mail, MapPin
 } from 'lucide-react';
 import { supabase } from '../config/supabaseClient';
 import { getUserShopStockTotal } from '../utils/stockService';
 import { getAllUsers, addUser, updateUser, deleteUser, isUserOnline } from '../utils/userService';
-import { getActivities, deleteActivity, ACTIVITY_COLORS } from '../utils/activityService';
+import { getActivities, deleteActivity, ACTIVITY_COLORS, logActivity } from '../utils/activityService';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from '../context/ConfirmContext';
 
