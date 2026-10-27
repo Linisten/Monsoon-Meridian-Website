@@ -120,7 +120,15 @@ const Users = () => {
 
   const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthKey);
   const [customerSearch, setCustomerSearch] = useState('');
-  const [customerViewMode, setCustomerViewMode] = useState('shop_customers'); // 'shop_customers' or 'directory'
+  const [customerViewMode, setCustomerViewMode] = useState('existing_customers'); // 'existing_customers', 'walkin_sales', or 'directory'
+  const [registeredCustomers, setRegisteredCustomers] = useState([]);
+  const [showCustomerModal, setShowCustomerModal] = useState(false);
+  const [editingCustomer, setEditingCustomer] = useState(null);
+  const [custName, setCustName] = useState('');
+  const [custPhone, setCustPhone] = useState('');
+  const [custEmail, setCustEmail] = useState('');
+  const [custAddress, setCustAddress] = useState('');
+  const [custSubmitting, setCustSubmitting] = useState(false);
 
   // Shop specific data states for selected user
   const [userShopSales, setUserShopSales] = useState([]);
@@ -173,14 +181,16 @@ const Users = () => {
         selectedUser.username?.toLowerCase() === 'admin' ||
         selectedUser.id === 'usr-admin-01';
 
-      const [salesRes, purchRes, itemsRes] = await Promise.all([
+      const [salesRes, purchRes, itemsRes, custRes] = await Promise.all([
         supabase.from('sales').select('*').order('created_at', { ascending: false }),
         supabase.from('purchases').select('*').order('created_at', { ascending: false }),
-        supabase.from('items').select('*')
+        supabase.from('items').select('*'),
+        supabase.from('customer').select('*').order('name')
       ]);
 
       const itemsList = itemsRes.data || [];
       setAllItems(itemsList);
+      setRegisteredCustomers(custRes.data || []);
 
       const allSales = salesRes.data || [];
       const allPurchases = purchRes.data || [];
@@ -252,6 +262,210 @@ const Users = () => {
       if (selectedActivityDetail?.id === id) setSelectedActivityDetail(null);
       await showAlert('Notification deleted successfully', 'success');
     }
+  };
+
+  const handleOpenAddCustomer = () => {
+    setEditingCustomer(null);
+    setCustName('');
+    setCustPhone('');
+    setCustEmail('');
+    setCustAddress('');
+    setShowCustomerModal(true);
+  };
+
+  const handleOpenEditCustomer = (cust, e) => {
+    if (e) e.stopPropagation();
+    setEditingCustomer(cust);
+    setCustName(cust.name || '');
+    setCustPhone(cust.phone || '');
+    setCustEmail(cust.email || '');
+    setCustAddress(cust.address || '');
+    setShowCustomerModal(true);
+  };
+
+  const handleSaveCustomer = async (e) => {
+    if (e) e.preventDefault();
+    if (!custName.trim()) {
+      await showAlert('Customer name is required', 'error');
+      return;
+    }
+    setCustSubmitting(true);
+    try {
+      const payload = {
+        name: custName.trim(),
+        phone: custPhone.trim() || null,
+        email: custEmail.trim() || null,
+        address: custAddress.trim() || null,
+      };
+
+      if (editingCustomer?.id) {
+        const { error } = await supabase.from('customer').update(payload).eq('id', editingCustomer.id);
+        if (error) throw error;
+        setRegisteredCustomers(prev => prev.map(c => c.id === editingCustomer.id ? { ...c, ...payload } : c));
+        await showAlert('Customer details updated successfully', 'success');
+        logActivity({
+          type: 'CUSTOMER',
+          color: '#0d9488',
+          title: `Customer Updated: "${payload.name}"`,
+          description: `Customer "${payload.name}" was updated by ${currentUser?.name || 'User'}.`,
+          metadata: { customer_id: editingCustomer.id, name: payload.name, phone: payload.phone }
+        });
+      } else {
+        const { data, error } = await supabase.from('customer').insert([payload]).select().single();
+        if (error) throw error;
+        setRegisteredCustomers(prev => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)));
+        await showAlert('New customer registered successfully', 'success');
+        logActivity({
+          type: 'CUSTOMER',
+          color: '#0d9488',
+          title: `New Customer Added: "${payload.name}"`,
+          description: `New customer "${payload.name}" registered by ${currentUser?.name || 'User'}.`,
+          metadata: { customer_id: data.id, name: payload.name, phone: payload.phone }
+        });
+      }
+      setShowCustomerModal(false);
+    } catch (err) {
+      await showAlert('Failed to save customer: ' + err.message, 'error');
+    } finally {
+      setCustSubmitting(false);
+    }
+  };
+
+  const handleDeleteCustomer = async (cust, e) => {
+    if (e) e.stopPropagation();
+    if (!isAdmin) {
+      await showAlert('Access Denied: Only Admin can delete customer records.', 'error');
+      return;
+    }
+    const confirmed = await confirm({
+      title: 'Delete Customer?',
+      message: `Are you sure you want to delete customer "${cust.name}"? This cannot be undone.`,
+      confirmText: 'Delete Customer',
+      cancelText: 'Cancel',
+      type: 'danger'
+    });
+    if (!confirmed) return;
+    try {
+      const { error } = await supabase.from('customer').delete().eq('id', cust.id);
+      if (error) throw error;
+      setRegisteredCustomers(prev => prev.filter(c => c.id !== cust.id));
+      await showAlert(`Customer "${cust.name}" deleted successfully`, 'success');
+      logActivity({
+        type: 'CUSTOMER',
+        color: '#ef4444',
+        title: `Customer Deleted: "${cust.name}"`,
+        description: `Customer "${cust.name}" was deleted by Admin.`,
+        metadata: { customer_id: cust.id, name: cust.name }
+      });
+    } catch (err) {
+      await showAlert('Failed to delete customer: ' + err.message, 'error');
+    }
+  };
+
+  const renderCustomerModal = () => {
+    if (!showCustomerModal) return null;
+    return (
+      <div style={{
+        position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.8)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        zIndex: 99999, padding: '1rem', backdropFilter: 'blur(4px)'
+      }}>
+        <div className="card" style={{ width: '100%', maxWidth: 480, padding: '2rem', borderRadius: '20px', background: 'white' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <div style={{ width: 40, height: 40, borderRadius: 12, background: '#eff6ff', color: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <UsersIcon size={20} />
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 900, color: '#0f172a' }}>
+                  {editingCustomer ? 'Edit Customer Details' : 'Add New Customer'}
+                </h3>
+                <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                  {editingCustomer ? `Update profile for ${editingCustomer.name}` : 'Register a new customer in Monsoon Meridian'}
+                </div>
+              </div>
+            </div>
+            <button onClick={() => setShowCustomerModal(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#64748b' }}>
+              <X size={20} />
+            </button>
+          </div>
+
+          <form onSubmit={handleSaveCustomer} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div>
+              <label style={{ fontSize: '0.82rem', fontWeight: 700, color: '#334155', display: 'block', marginBottom: '0.35rem' }}>
+                Customer Name <span style={{ color: '#ef4444' }}>*</span>
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. Nidhin Raj or Gateway Super Bazar"
+                value={custName}
+                onChange={e => setCustName(e.target.value)}
+                required
+                style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', fontSize: '0.9rem', outline: 'none' }}
+              />
+            </div>
+
+            <div>
+              <label style={{ fontSize: '0.82rem', fontWeight: 700, color: '#334155', display: 'block', marginBottom: '0.35rem' }}>
+                Phone Number
+              </label>
+              <input
+                type="tel"
+                placeholder="e.g. 9876543210"
+                value={custPhone}
+                onChange={e => setCustPhone(e.target.value)}
+                style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', fontSize: '0.9rem', outline: 'none' }}
+              />
+            </div>
+
+            <div>
+              <label style={{ fontSize: '0.82rem', fontWeight: 700, color: '#334155', display: 'block', marginBottom: '0.35rem' }}>
+                Email Address
+              </label>
+              <input
+                type="email"
+                placeholder="e.g. customer@example.com"
+                value={custEmail}
+                onChange={e => setCustEmail(e.target.value)}
+                style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', fontSize: '0.9rem', outline: 'none' }}
+              />
+            </div>
+
+            <div>
+              <label style={{ fontSize: '0.82rem', fontWeight: 700, color: '#334155', display: 'block', marginBottom: '0.35rem' }}>
+                Address / Location
+              </label>
+              <textarea
+                placeholder="e.g. Building No, Street, City"
+                value={custAddress}
+                onChange={e => setCustAddress(e.target.value)}
+                rows={2}
+                style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '10px', border: '1.5px solid #cbd5e1', fontSize: '0.9rem', outline: 'none', resize: 'vertical' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
+              <button
+                type="button"
+                onClick={() => setShowCustomerModal(false)}
+                className="btn-secondary"
+                style={{ flex: 1, padding: '0.75rem' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={custSubmitting}
+                className="btn-primary"
+                style={{ flex: 1, padding: '0.75rem', background: '#2563eb' }}
+              >
+                {custSubmitting ? 'Saving...' : (editingCustomer ? 'Update Customer' : 'Add Customer')}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
   };
 
   useEffect(() => {
@@ -962,6 +1176,38 @@ const Users = () => {
   });
 
   const shopCustomersList = Object.values(monthlyCustomerMap).sort((a, b) => b.totalSpent - a.totalSpent);
+
+  // Match each registered existing customer with their purchases and spend
+  const existingCustomersWithStats = registeredCustomers.map(cust => {
+    const cNameLower = (cust.name || '').trim().toLowerCase();
+    const cPhoneClean = (cust.phone || '').trim();
+
+    const matchingSales = userShopSales.filter(s => {
+      const sName = (s.customer_name || '').trim().toLowerCase();
+      if (sName && sName === cNameLower) return true;
+      if (cPhoneClean && s.customer_phone && s.customer_phone.trim() === cPhoneClean) return true;
+      return false;
+    });
+
+    const monthlyMatching = matchingSales.filter(s => (s.created_at || '').slice(0, 7) === selectedMonth);
+    const lifetimeSpend = matchingSales.reduce((acc, s) => acc + (parseFloat(s.total_amount) || 0), 0);
+    const monthlySpend = monthlyMatching.reduce((acc, s) => acc + (parseFloat(s.total_amount) || 0), 0);
+    const lastDate = matchingSales[0]?.created_at || cust.created_at;
+
+    return {
+      ...cust,
+      lifetimeBills: matchingSales.length,
+      lifetimeSpend,
+      monthlyBills: monthlyMatching.length,
+      monthlySpend,
+      lastDate,
+      hasTransacted: matchingSales.length > 0
+    };
+  }).sort((a, b) => (b.lifetimeSpend - a.lifetimeSpend) || a.name.localeCompare(b.name));
+
+  const totalRegisteredSpendLifetime = existingCustomersWithStats.reduce((sum, c) => sum + c.lifetimeSpend, 0);
+  const totalRegisteredSpendMonthly = existingCustomersWithStats.reduce((sum, c) => sum + c.monthlySpend, 0);
+  const activeCustomersCount = existingCustomersWithStats.filter(c => c.hasTransacted).length;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', height: '100%' }}>
@@ -1762,49 +2008,101 @@ const Users = () => {
       {/* ── TAB CONTENT: 7. CUSTOMERS TAB ── */}
       {activeTab === 'customer' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', flex: 1, overflowY: 'auto' }}>
+          
           {/* Header & Controls */}
           <div className="card" style={{ padding: '1rem 1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-              <UsersIcon size={24} color="#2563eb" />
+              <div style={{ width: 42, height: 42, borderRadius: 12, background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)', color: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <UsersIcon size={22} />
+              </div>
               <div>
-                <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800 }}>
-                  Customer Activity — {selectedUser.name}'s Shop
+                <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 900, color: '#0f172a' }}>
+                  {customerViewMode === 'existing_customers' 
+                    ? 'Existing Customer Directory' 
+                    : customerViewMode === 'walkin_sales'
+                    ? `Walk-in Sales Activity — ${selectedUser.name}'s Shop`
+                    : 'Customer Master Directory'}
                 </h3>
                 <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600 }}>
-                  Showing customers billed in <strong>{getMonthDisplayName(selectedMonth)}</strong>
+                  {customerViewMode === 'existing_customers'
+                    ? `Showing all ${registeredCustomers.length} registered customers in Monsoon Meridian`
+                    : customerViewMode === 'walkin_sales'
+                    ? `Showing invoices for ${getMonthDisplayName(selectedMonth)}`
+                    : 'Full dual-pane record editor'}
                 </span>
               </div>
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-              {/* Month Picker */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: '#f8fafc', padding: '0.35rem 0.65rem', borderRadius: '10px', border: '1px solid #cbd5e1' }}>
-                <Calendar size={15} color="#64748b" />
-                <input 
-                  type="month"
-                  value={selectedMonth}
-                  onChange={e => setSelectedMonth(e.target.value)}
-                  style={{ border: 'none', background: 'transparent', fontWeight: 700, fontSize: '0.82rem', color: '#0f172a', outline: 'none', cursor: 'pointer' }}
-                />
-              </div>
+              {/* Search Box */}
+              {customerViewMode === 'existing_customers' && (
+                <div style={{ position: 'relative', width: 220 }}>
+                  <Search size={15} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                  <input
+                    type="text"
+                    placeholder="Search name, phone, email..."
+                    value={customerSearch}
+                    onChange={e => setCustomerSearch(e.target.value)}
+                    style={{ width: '100%', padding: '0.42rem 0.5rem 0.42rem 2rem', borderRadius: 8, border: '1.5px solid #cbd5e1', fontSize: '0.82rem', outline: 'none' }}
+                  />
+                </div>
+              )}
 
-              {/* View toggle */}
+              {/* Month Picker for Walk-in or stats */}
+              {customerViewMode === 'walkin_sales' && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: '#f8fafc', padding: '0.35rem 0.65rem', borderRadius: '10px', border: '1px solid #cbd5e1' }}>
+                  <Calendar size={15} color="#64748b" />
+                  <input 
+                    type="month"
+                    value={selectedMonth}
+                    onChange={e => setSelectedMonth(e.target.value)}
+                    style={{ border: 'none', background: 'transparent', fontWeight: 700, fontSize: '0.82rem', color: '#0f172a', outline: 'none', cursor: 'pointer' }}
+                  />
+                </div>
+              )}
+
+              {/* Add Customer Button */}
+              <button
+                onClick={handleOpenAddCustomer}
+                className="btn-primary"
+                style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.45rem 0.95rem', fontSize: '0.82rem', fontWeight: 800, background: '#2563eb' }}
+              >
+                <UserPlus size={16} /> Add Customer
+              </button>
+
+              {/* View Toggle */}
               <div style={{ display: 'flex', background: '#f1f5f9', padding: '3px', borderRadius: '8px' }}>
                 <button
-                  onClick={() => setCustomerViewMode('shop_customers')}
+                  onClick={() => setCustomerViewMode('existing_customers')}
                   style={{
                     padding: '0.35rem 0.75rem',
                     borderRadius: '6px',
                     border: 'none',
-                    background: customerViewMode === 'shop_customers' ? 'white' : 'transparent',
-                    color: customerViewMode === 'shop_customers' ? '#0f172a' : '#64748b',
+                    background: customerViewMode === 'existing_customers' ? 'white' : 'transparent',
+                    color: customerViewMode === 'existing_customers' ? '#0f172a' : '#64748b',
                     fontWeight: 700,
                     fontSize: '0.78rem',
                     cursor: 'pointer',
-                    boxShadow: customerViewMode === 'shop_customers' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
+                    boxShadow: customerViewMode === 'existing_customers' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
                   }}
                 >
-                  Monthly Customers ({shopCustomersList.length})
+                  Existing Customers ({registeredCustomers.length})
+                </button>
+                <button
+                  onClick={() => setCustomerViewMode('walkin_sales')}
+                  style={{
+                    padding: '0.35rem 0.75rem',
+                    borderRadius: '6px',
+                    border: 'none',
+                    background: customerViewMode === 'walkin_sales' ? 'white' : 'transparent',
+                    color: customerViewMode === 'walkin_sales' ? '#0f172a' : '#64748b',
+                    fontWeight: 700,
+                    fontSize: '0.78rem',
+                    cursor: 'pointer',
+                    boxShadow: customerViewMode === 'walkin_sales' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
+                  }}
+                >
+                  Walk-in Sales
                 </button>
                 <button
                   onClick={() => setCustomerViewMode('directory')}
@@ -1820,20 +2118,255 @@ const Users = () => {
                     boxShadow: customerViewMode === 'directory' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
                   }}
                 >
-                  Master Directory
+                  Master Editor
                 </button>
               </div>
             </div>
           </div>
 
-          {customerViewMode === 'directory' ? (
-            <GenericMaster title="Customers" table="customers" defaultSort="name" />
-          ) : (
+          {/* VIEW 1: EXISTING REGISTERED CUSTOMERS (DEFAULT) */}
+          {customerViewMode === 'existing_customers' && (
+            <>
+              {/* Customer KPIs */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+                <div className="card" style={{ padding: '1.25rem', borderLeft: '4px solid #2563eb', borderRadius: 14 }}>
+                  <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 800, textTransform: 'uppercase' }}>Registered Customers</div>
+                  <div style={{ fontSize: '1.7rem', fontWeight: 900, color: '#0f172a', marginTop: 4 }}>
+                    {registeredCustomers.length} <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>clients</span>
+                  </div>
+                </div>
+                <div className="card" style={{ padding: '1.25rem', borderLeft: '4px solid #10b981', borderRadius: 14 }}>
+                  <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 800, textTransform: 'uppercase' }}>Active Transacting</div>
+                  <div style={{ fontSize: '1.7rem', fontWeight: 900, color: '#166534', marginTop: 4 }}>
+                    {activeCustomersCount} <span style={{ fontSize: '0.85rem', color: '#16a34a', fontWeight: 600 }}>with bills</span>
+                  </div>
+                </div>
+                <div className="card" style={{ padding: '1.25rem', borderLeft: '4px solid #8b5cf6', borderRadius: 14 }}>
+                  <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 800, textTransform: 'uppercase' }}>Lifetime Client Revenue</div>
+                  <div style={{ fontSize: '1.7rem', fontWeight: 900, color: '#6d28d9', marginTop: 4 }}>
+                    ₹{totalRegisteredSpendLifetime.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </div>
+                </div>
+                <div className="card" style={{ padding: '1.25rem', borderLeft: '4px solid #f59e0b', borderRadius: 14 }}>
+                  <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 800, textTransform: 'uppercase' }}>
+                    Revenue in {getMonthDisplayName(selectedMonth)}
+                  </div>
+                  <div style={{ fontSize: '1.7rem', fontWeight: 900, color: '#b45309', marginTop: 4 }}>
+                    ₹{totalRegisteredSpendMonthly.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Existing Customers Table */}
+              <div className="card" style={{ padding: 0, overflow: 'hidden', borderRadius: 16 }}>
+                <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc' }}>
+                  <div style={{ fontWeight: 800, fontSize: '0.95rem', color: '#0f172a' }}>
+                    Existing Customer Profiles &amp; Purchase History
+                  </div>
+                  <span style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 600 }}>
+                    Total {existingCustomersWithStats.length} registered
+                  </span>
+                </div>
+
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                  <thead style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', textAlign: 'left' }}>
+                    <tr>
+                      <th style={{ padding: '0.75rem 1rem', width: 40 }}>#</th>
+                      <th style={{ padding: '0.75rem 1rem' }}>Customer</th>
+                      <th style={{ padding: '0.75rem 1rem' }}>Phone</th>
+                      <th style={{ padding: '0.75rem 1rem' }}>Email</th>
+                      <th style={{ padding: '0.75rem 1rem' }}>Address</th>
+                      <th style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>Lifetime Bills</th>
+                      <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Total Spend (₹)</th>
+                      <th style={{ padding: '0.75rem 1rem' }}>{getMonthDisplayName(selectedMonth)}</th>
+                      <th style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {existingCustomersWithStats
+                      .filter(c => {
+                        if (!customerSearch) return true;
+                        const q = customerSearch.toLowerCase();
+                        return (
+                          (c.name && c.name.toLowerCase().includes(q)) ||
+                          (c.phone && c.phone.includes(q)) ||
+                          (c.email && c.email.toLowerCase().includes(q)) ||
+                          (c.address && c.address.toLowerCase().includes(q))
+                        );
+                      })
+                      .map((cust, i) => {
+                        const initial = (cust.name || 'C').charAt(0).toUpperCase();
+                        const colors = ['#2563eb', '#059669', '#d97706', '#7c3aed', '#db2777', '#0891b2'];
+                        const avatarBg = colors[i % colors.length];
+
+                        return (
+                          <tr key={cust.id || cust.name} style={{ borderBottom: '1px solid #f1f5f9', transition: 'background 0.15s' }}>
+                            <td style={{ padding: '0.75rem 1rem', color: '#94a3b8', fontWeight: 600 }}>{i + 1}</td>
+                            
+                            {/* Customer Name + Avatar */}
+                            <td style={{ padding: '0.75rem 1rem' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                                <div style={{
+                                  width: 32,
+                                  height: 32,
+                                  borderRadius: 8,
+                                  background: avatarBg,
+                                  color: 'white',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  fontWeight: 800,
+                                  fontSize: '0.85rem'
+                                }}>
+                                  {initial}
+                                </div>
+                                <div>
+                                  <div style={{ fontWeight: 800, color: '#0f172a' }}>{cust.name}</div>
+                                  <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>
+                                    Joined: {new Date(cust.created_at || Date.now()).toLocaleDateString()}
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* Phone */}
+                            <td style={{ padding: '0.75rem 1rem', color: cust.phone ? '#0f172a' : '#94a3b8', fontWeight: cust.phone ? 600 : 400 }}>
+                              {cust.phone ? (
+                                <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                  <Phone size={13} color="#64748b" /> {cust.phone}
+                                </span>
+                              ) : '—'}
+                            </td>
+
+                            {/* Email */}
+                            <td style={{ padding: '0.75rem 1rem', color: cust.email ? '#0f172a' : '#94a3b8', fontSize: '0.8rem' }}>
+                              {cust.email ? (
+                                <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                  <Mail size={13} color="#64748b" /> {cust.email}
+                                </span>
+                              ) : '—'}
+                            </td>
+
+                            {/* Address */}
+                            <td style={{ padding: '0.75rem 1rem', color: cust.address ? '#475569' : '#94a3b8', fontSize: '0.8rem', maxWidth: 180 }}>
+                              {cust.address ? (
+                                <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                  <MapPin size={13} color="#64748b" /> {cust.address}
+                                </span>
+                              ) : '—'}
+                            </td>
+
+                            {/* Lifetime Bills */}
+                            <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
+                              <span style={{
+                                padding: '2px 8px',
+                                borderRadius: 999,
+                                background: cust.lifetimeBills > 0 ? '#e0f2fe' : '#f1f5f9',
+                                color: cust.lifetimeBills > 0 ? '#0369a1' : '#64748b',
+                                fontWeight: 800,
+                                fontSize: '0.75rem'
+                              }}>
+                                {cust.lifetimeBills} bill{cust.lifetimeBills === 1 ? '' : 's'}
+                              </span>
+                            </td>
+
+                            {/* Total Spent */}
+                            <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: 900, color: cust.lifetimeSpend > 0 ? '#16a34a' : '#94a3b8', fontSize: '0.92rem' }}>
+                              ₹{cust.lifetimeSpend.toFixed(2)}
+                            </td>
+
+                            {/* Monthly Activity */}
+                            <td style={{ padding: '0.75rem 1rem' }}>
+                              {cust.monthlyBills > 0 ? (
+                                <span style={{ padding: '2px 8px', borderRadius: 6, background: '#dcfce7', color: '#166534', fontWeight: 800, fontSize: '0.75rem' }}>
+                                  {cust.monthlyBills} bill{cust.monthlyBills > 1 ? 's' : ''} • ₹{cust.monthlySpend.toFixed(0)}
+                                </span>
+                              ) : (
+                                <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>No bills in {getMonthDisplayName(selectedMonth)}</span>
+                              )}
+                            </td>
+
+                            {/* Actions: Edit / Delete */}
+                            <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
+                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+                                <button
+                                  onClick={(e) => handleOpenEditCustomer(cust, e)}
+                                  title="Edit Customer"
+                                  style={{
+                                    border: '1px solid #cbd5e1',
+                                    background: 'white',
+                                    borderRadius: 6,
+                                    padding: '0.35rem 0.5rem',
+                                    cursor: 'pointer',
+                                    color: '#2563eb',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    transition: 'all 0.15s'
+                                  }}
+                                  onMouseEnter={e => e.currentTarget.style.background = '#eff6ff'}
+                                  onMouseLeave={e => e.currentTarget.style.background = 'white'}
+                                >
+                                  <Pencil size={13} />
+                                </button>
+                                {isAdmin && (
+                                  <button
+                                    onClick={(e) => handleDeleteCustomer(cust, e)}
+                                    title="Delete Customer"
+                                    style={{
+                                      border: '1px solid #fecaca',
+                                      background: '#fff1f2',
+                                      borderRadius: 6,
+                                      padding: '0.35rem 0.5rem',
+                                      cursor: 'pointer',
+                                      color: '#dc2626',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      transition: 'all 0.15s'
+                                    }}
+                                    onMouseEnter={e => e.currentTarget.style.background = '#ffe4e6'}
+                                    onMouseLeave={e => e.currentTarget.style.background = '#fff1f2'}
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+
+                    {registeredCustomers.length === 0 && (
+                      <tr>
+                        <td colSpan={9} style={{ padding: '3.5rem', textAlign: 'center', color: '#64748b' }}>
+                          <UsersIcon size={36} color="#cbd5e1" style={{ margin: '0 auto 0.75rem' }} />
+                          <h4 style={{ margin: '0 0 0.5rem', color: '#0f172a', fontWeight: 800 }}>No Registered Customers Found</h4>
+                          <p style={{ margin: '0 0 1rem', fontSize: '0.85rem' }}>Start building your client directory by adding your first customer.</p>
+                          <button onClick={handleOpenAddCustomer} className="btn-primary" style={{ padding: '0.5rem 1.25rem', fontSize: '0.85rem' }}>
+                            <UserPlus size={16} /> Register First Customer
+                          </button>
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+
+          {/* VIEW 2: MASTER DIRECTORY / EDITOR */}
+          {customerViewMode === 'directory' && (
+            <div style={{ flex: 1, overflowY: 'auto' }}>
+              <GenericMaster masterType="customer" />
+            </div>
+          )}
+
+          {/* VIEW 3: WALK-IN GUEST SALES */}
+          {customerViewMode === 'walkin_sales' && (
             <>
               {/* Customer KPIs */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
                 <div className="card" style={{ padding: '1.25rem', borderLeft: '4px solid #2563eb' }}>
-                  <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Customers Served</div>
+                  <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Walk-in / Guest Groups</div>
                   <div style={{ fontSize: '1.6rem', fontWeight: 900, color: '#0f172a', marginTop: 4 }}>{shopCustomersList.length}</div>
                 </div>
                 <div className="card" style={{ padding: '1.25rem', borderLeft: '4px solid #10b981' }}>
@@ -1845,28 +2378,18 @@ const Users = () => {
                   <div style={{ fontSize: '1.6rem', fontWeight: 900, color: '#6d28d9', marginTop: 4 }}>₹{monthlySalesTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
                 </div>
                 <div className="card" style={{ padding: '1.25rem', borderLeft: '4px solid #f59e0b' }}>
-                  <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Avg. Spend / Customer</div>
+                  <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Avg. Spend / Bill</div>
                   <div style={{ fontSize: '1.6rem', fontWeight: 900, color: '#b45309', marginTop: 4 }}>
-                    ₹{shopCustomersList.length > 0 ? (monthlySalesTotal / shopCustomersList.length).toFixed(2) : '0.00'}
+                    ₹{monthlySales.length > 0 ? (monthlySalesTotal / monthlySales.length).toFixed(2) : '0.00'}
                   </div>
                 </div>
               </div>
 
-              {/* Customers Table */}
+              {/* Monthly Breakdown Table */}
               <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
                 <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div style={{ fontWeight: 800, fontSize: '0.95rem', color: '#0f172a' }}>
-                    Customer Breakdown for {getMonthDisplayName(selectedMonth)}
-                  </div>
-                  <div style={{ position: 'relative', width: 240 }}>
-                    <Search size={15} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-                    <input
-                      type="text"
-                      placeholder="Search customer..."
-                      value={customerSearch}
-                      onChange={e => setCustomerSearch(e.target.value)}
-                      style={{ width: '100%', padding: '0.4rem 0.5rem 0.4rem 2rem', borderRadius: 8, border: '1.5px solid #cbd5e1', fontSize: '0.82rem' }}
-                    />
+                    Sales Breakdown for {getMonthDisplayName(selectedMonth)}
                   </div>
                 </div>
 
@@ -1883,33 +2406,31 @@ const Users = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {shopCustomersList
-                      .filter(c => !customerSearch || c.name.toLowerCase().includes(customerSearch.toLowerCase()) || (c.phone && c.phone.includes(customerSearch)))
-                      .map((cust, i) => (
-                        <tr key={cust.name} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                          <td style={{ padding: '0.75rem 1rem', color: '#94a3b8' }}>{i + 1}</td>
-                          <td style={{ padding: '0.75rem 1rem', fontWeight: 800, color: '#0f172a' }}>{cust.name}</td>
-                          <td style={{ padding: '0.75rem 1rem', color: '#64748b' }}>{cust.phone}</td>
-                          <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
-                            <span style={{ padding: '2px 8px', borderRadius: 999, background: '#e0f2fe', color: '#0369a1', fontWeight: 800, fontSize: '0.75rem' }}>
-                              {cust.billsCount} bill{cust.billsCount > 1 ? 's' : ''}
+                    {shopCustomersList.map((cust, i) => (
+                      <tr key={cust.name} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '0.75rem 1rem', color: '#94a3b8' }}>{i + 1}</td>
+                        <td style={{ padding: '0.75rem 1rem', fontWeight: 800, color: '#0f172a' }}>{cust.name}</td>
+                        <td style={{ padding: '0.75rem 1rem', color: '#64748b' }}>{cust.phone}</td>
+                        <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
+                          <span style={{ padding: '2px 8px', borderRadius: 999, background: '#e0f2fe', color: '#0369a1', fontWeight: 800, fontSize: '0.75rem' }}>
+                            {cust.billsCount} bill{cust.billsCount > 1 ? 's' : ''}
+                          </span>
+                        </td>
+                        <td style={{ padding: '0.75rem 1rem' }}>
+                          {Array.from(cust.paymentMethods).map(m => (
+                            <span key={m} style={{ padding: '2px 6px', borderRadius: 4, background: '#f1f5f9', fontSize: '0.72rem', fontWeight: 700, marginRight: 4 }}>
+                              {m}
                             </span>
-                          </td>
-                          <td style={{ padding: '0.75rem 1rem' }}>
-                            {Array.from(cust.paymentMethods).map(m => (
-                              <span key={m} style={{ padding: '2px 6px', borderRadius: 4, background: '#f1f5f9', fontSize: '0.72rem', fontWeight: 700, marginRight: 4 }}>
-                                {m}
-                              </span>
-                            ))}
-                          </td>
-                          <td style={{ padding: '0.75rem 1rem', color: '#64748b', fontSize: '0.78rem' }}>
-                            {new Date(cust.lastDate).toLocaleDateString()}
-                          </td>
-                          <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: 900, color: '#16a34a', fontSize: '0.92rem' }}>
-                            ₹{cust.totalSpent.toFixed(2)}
-                          </td>
-                        </tr>
-                      ))}
+                          ))}
+                        </td>
+                        <td style={{ padding: '0.75rem 1rem', color: '#64748b', fontSize: '0.78rem' }}>
+                          {new Date(cust.lastDate).toLocaleDateString()}
+                        </td>
+                        <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: 900, color: '#16a34a', fontSize: '0.92rem' }}>
+                          ₹{cust.totalSpent.toFixed(2)}
+                        </td>
+                      </tr>
+                    ))}
                     {shopCustomersList.length === 0 && (
                       <tr>
                         <td colSpan={7} style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>
@@ -1922,6 +2443,7 @@ const Users = () => {
               </div>
             </>
           )}
+
         </div>
       )}
 
@@ -1934,6 +2456,9 @@ const Users = () => {
 
       {/* Modal: Edit User Details */}
       {renderEditModal()}
+
+      {/* Modal: Add / Edit Customer Details */}
+      {renderCustomerModal()}
 
     </div>
   );
